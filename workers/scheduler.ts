@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq';
 import cronParser from 'cron-parser';
 import supabase from '../lib/supabase';
-import { recipeQueue } from '../lib/queue';
+import { workflowQueue } from '../lib/queue';
 
 const redisConnection = {
   host: process.env.REDIS_HOST || 'localhost',
@@ -12,11 +12,11 @@ const redisConnection = {
 export const schedulerWorker = new Worker(
   'scheduler',
   async () => {
-    console.log('[Scheduler] Checking for recipes to execute...');
+    console.log('[Scheduler] Checking for workflows to execute...');
 
-    // Get all active scheduled recipes
+    // Get all active scheduled workflows
     const { data: schedules, error } = await supabase
-      .from('scheduled_recipes')
+      .from('scheduled_workflows')
       .select('*')
       .eq('status', 'active')
       .eq('is_enabled', true);
@@ -46,8 +46,8 @@ export const schedulerWorker = new Worker(
           const { data: executionLog, error: logError } = await supabase
             .from('execution_logs')
             .insert({
-              scheduled_recipe_id: schedule.id,
-              recipe_id: schedule.recipe_id,
+              scheduled_workflow_id: schedule.id,
+              workflow_id: schedule.workflow_id,
               user_id: schedule.user_id,
               status: 'pending',
               triggered_by: 'scheduler',
@@ -64,11 +64,11 @@ export const schedulerWorker = new Worker(
           }
 
           // Add job to queue
-          await recipeQueue.add(
-            'execute-recipe',
+          await workflowQueue.add(
+            'execute-workflow',
             {
-              recipe_id: schedule.recipe_id,
-              scheduled_recipe_id: schedule.id,
+              workflow_id: schedule.workflow_id,
+              scheduled_workflow_id: schedule.id,
               user_id: schedule.user_id,
               execution_log_id: executionLog?.id,
               params: schedule.params || {},
@@ -92,14 +92,14 @@ export const schedulerWorker = new Worker(
 
           // Update next_run_at
           await supabase
-            .from('scheduled_recipes')
+            .from('scheduled_workflows')
             .update({
               next_run_at: nextRun.toISOString(),
             })
             .eq('id', schedule.id);
 
           console.log(
-            `[Scheduler] Queued recipe ${schedule.recipe_id} (schedule: ${schedule.id})`
+            `[Scheduler] Queued workflow ${schedule.workflow_id} (schedule: ${schedule.id})`
           );
           scheduledCount++;
         }
@@ -111,7 +111,7 @@ export const schedulerWorker = new Worker(
       }
     }
 
-    console.log(`[Scheduler] Scheduled ${scheduledCount} recipes`);
+    console.log(`[Scheduler] Scheduled ${scheduledCount} workflows`);
   },
   {
     connection: redisConnection,
