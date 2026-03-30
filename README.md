@@ -1,12 +1,12 @@
-# Recipe Automation Engine
+# Workflow Automation Engine
 
-Production-ready BullMQ + Node.js recipe automation engine with Supabase integration. Create, schedule, and execute complex workflows with cron jobs.
+Production-ready BullMQ + Node.js workflow automation engine with Supabase integration. Create, schedule, and execute complex workflows with cron jobs.
 
 ## Features
 
 ✅ **BullMQ Job Queue** - Reliable job processing with Redis  
-✅ **Cron Scheduling** - Schedule recipes with cron expressions  
-✅ **Supabase Integration** - Store recipes, schedules, and execution logs  
+✅ **Cron Scheduling** - Schedule workflows with cron expressions  
+✅ **Supabase Integration** - Store workflows, schedules, and execution logs  
 ✅ **MCP Support** - Execute tools across GitHub, Slack, Gmail, Notion, etc.  
 ✅ **Workflow Engine** - Complex multi-step workflows with dependencies  
 ✅ **Error Handling** - Automatic retries with exponential backoff  
@@ -85,9 +85,9 @@ npm run scheduler
 │   ├── supabase.ts           # Supabase client
 │   ├── queue.ts              # BullMQ queues
 │   ├── mcp-executor.ts       # MCP tool execution
-│   └── recipe-executor.ts    # Recipe workflow engine
+│   └── workflow-executor.ts  # Workflow engine
 ├── workers/
-│   ├── recipe-worker.ts      # Job processor
+│   ├── workflow-worker.ts    # Job processor
 │   └── scheduler.ts          # Cron scheduler
 ├── database.sql              # PostgreSQL schema
 ├── worker.ts                 # Main entry point
@@ -98,10 +98,10 @@ npm run scheduler
 
 The system uses Supabase PostgreSQL with the following tables:
 
-- **recipes** - Recipe definitions
-- **scheduled_recipes** - Cron schedules
+- **workflows** - Workflow definitions
+- **scheduled_workflows** - Cron schedules
 - **execution_logs** - Execution history
-- **recipe_steps** - Workflow steps
+- **workflow_steps** - Workflow steps
 - **mcp_credentials** - Encrypted MCP tokens
 - **webhook_triggers** - Manual execution hooks
 - **audit_logs** - Activity logging
@@ -111,7 +111,7 @@ See `database.sql` for complete schema.
 ## Workflow Example
 
 ```typescript
-// Recipe workflow: Create GitHub issue + post to Slack
+// Workflow: Create GitHub issue + post to Slack
 const workflow = [
   {
     step_number: 1,
@@ -142,8 +142,8 @@ const workflow = [
 ```bash
 # Check Redis queue
 redis-cli
-> KEYS recipe*
-> HGETALL bull:recipes:...
+> KEYS workflow*
+> HGETALL bull:workflows:...
 ```
 
 ### View Logs
@@ -176,12 +176,12 @@ ORDER BY created_at DESC;
 ### Docker Deployment
 
 ```bash
-docker build -t recipe-worker .
+docker build -t workflow-engine .
 docker run -d \
   -e REDIS_HOST=redis-prod \
   -e SUPABASE_URL=prod-url \
   -e SUPABASE_SERVICE_KEY=prod-key \
-  recipe-worker
+  workflow-engine
 ```
 
 ### Kubernetes
@@ -190,20 +190,20 @@ docker run -d \
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: recipe-worker
+  name: workflow-engine
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: recipe-worker
+      app: workflow-engine
   template:
     metadata:
       labels:
-        app: recipe-worker
+        app: workflow-engine
     spec:
       containers:
       - name: worker
-        image: recipe-worker:latest
+        image: workflow-engine:latest
         env:
         - name: REDIS_HOST
           value: redis.default.svc.cluster.local
@@ -222,10 +222,10 @@ MIT - See LICENSE file
 
 ## Support
 
-- 📖 [Documentation](./docs)
-- 🐛 [Issues](https://github.com/Avyakta000/recipe-automation-engine/issues)
-- 💬 [Discussions](https://github.com/Avyakta000/recipe-automation-engine/discussions)
+- Documentation: ./docs
+- Issues: https://github.com/Avyakta000/recipe-automation-engine/issues
+- Discussions: https://github.com/Avyakta000/recipe-automation-engine/discussions
 
 ---
 
-Built with ❤️ by Avyakta000
+Built with love by Avyakta000
