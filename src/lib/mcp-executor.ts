@@ -125,19 +125,35 @@ function getMcpToolErrorMessage(result: unknown): string | null {
 
   const candidate = result as {
     isError?: boolean;
-    content?: Array<{ text?: unknown }>;
+    content?: Array<{ text?: unknown; type?: string }>;
   };
 
-  if (candidate.isError !== true) {
-    return null;
+  const firstText = Array.isArray(candidate.content)
+    ? (candidate.content.find((c) => typeof c.text === "string")?.text as string | undefined)?.trim()
+    : undefined;
+
+  if (candidate.isError === true) {
+    return firstText || "MCP tool call returned error response";
   }
 
-  const firstContent = Array.isArray(candidate.content) ? candidate.content[0] : undefined;
-  if (firstContent && typeof firstContent.text === "string" && firstContent.text.trim().length > 0) {
-    return firstContent.text;
+  if (firstText) {
+    const lower = firstText.toLowerCase();
+    const errorPatterns = [
+      "error:",
+      "not accessible",
+      "permission denied",
+      "forbidden",
+      "unauthorized",
+      "not found",
+      "rate limit",
+      "bad credentials",
+    ];
+    if (errorPatterns.some((p) => lower.startsWith(p) || lower.includes(p))) {
+      return firstText;
+    }
   }
 
-  return "MCP tool call returned error response";
+  return null;
 }
 
 function resolveTemplateString(
@@ -149,10 +165,8 @@ function resolveTemplateString(
   if (exactMatch) {
     const value = resolveExpression(exactMatch[1], params, stepOutputs);
     if (value === undefined) {
-      throw new NonRetryableExecutionError(
-        `Template variable "${exactMatch[1]}" could not be resolved`,
-        "TEMPLATE_RESOLUTION_FAILED"
-      );
+      console.warn(`[mcp-executor] Template variable "${exactMatch[1]}" could not be resolved, using empty string`);
+      return "";
     }
     return value;
   }
@@ -160,10 +174,8 @@ function resolveTemplateString(
   return template.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_match, expression: string) => {
     const value = resolveExpression(expression, params, stepOutputs);
     if (value === undefined) {
-      throw new NonRetryableExecutionError(
-        `Template variable "${expression}" could not be resolved`,
-        "TEMPLATE_RESOLUTION_FAILED"
-      );
+      console.warn(`[mcp-executor] Template variable "${expression}" could not be resolved, using empty string`);
+      return "";
     }
     if (typeof value === "string") {
       return value;
@@ -185,13 +197,39 @@ function resolveExpression(
 
   const stepMatch = expression.match(/^steps\.(\d+)\.(.+)$/);
   if (stepMatch) {
-    const stepNumber = Number(stepMatch[1]);
+    const stepIdx = Number(stepMatch[1]);
     const path = stepMatch[2];
-    const stepResult = stepOutputs[stepNumber];
+
+    // Support both 0-based and 1-based step references
+    const stepResult = stepOutputs[stepIdx] ?? stepOutputs[stepIdx + 1];
     if (!stepResult) {
       return undefined;
     }
-    return parsePath(stepResult, path);
+
+    // Try the exact path first
+    let value = parsePath(stepResult, path);
+    if (value !== undefined) return value;
+
+    // AI steps store text in output.content and parsed JSON in output.parsed_output.
+    // If the template drills into output.content.X, it likely meant output.parsed_output.X
+    if (path.startsWith("output.content.")) {
+      const altPath = path.replace("output.content.", "output.parsed_output.");
+      value = parsePath(stepResult, altPath);
+      if (value !== undefined) return value;
+    }
+
+    // Also try a direct short-hand: "output.X" → "output.parsed_output.X"
+    if (path.startsWith("output.") && !path.startsWith("output.parsed_output.")) {
+      const segments = path.split(".");
+      if (segments.length >= 2 && segments[1] !== "content" && segments[1] !== "tool_call_log" &&
+          segments[1] !== "reasoning_trace" && segments[1] !== "ai_usage") {
+        const altPath = "output.parsed_output." + segments.slice(1).join(".");
+        value = parsePath(stepResult, altPath);
+        if (value !== undefined) return value;
+      }
+    }
+
+    return undefined;
   }
 
   return undefined;
