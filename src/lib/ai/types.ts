@@ -50,15 +50,21 @@ export interface AIConditionResult {
 }
 
 const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
+  // OpenAI
   "gpt-4o": { input: 2.5, output: 10 },
   "gpt-4o-mini": { input: 0.15, output: 0.6 },
   "gpt-4.1": { input: 2.0, output: 8.0 },
   "gpt-4.1-mini": { input: 0.4, output: 1.6 },
   "gpt-4.1-nano": { input: 0.1, output: 0.4 },
+  // Anthropic
   "claude-sonnet-4-20250514": { input: 3, output: 15 },
   "claude-3-5-haiku-20241022": { input: 0.8, output: 4 },
+  // Google
   "gemini-2.0-flash": { input: 0.1, output: 0.4 },
   "gemini-2.5-pro-preview-05-06": { input: 1.25, output: 10 },
+  // DeepSeek
+  "deepseek-chat": { input: 0.27, output: 1.1 },
+  "deepseek-reasoner": { input: 0.55, output: 2.19 },
 };
 
 export function estimateCostUsd(

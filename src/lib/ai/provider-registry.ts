@@ -1,6 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import type { LanguageModel } from "ai";
 
 const DEFAULT_PROVIDER = process.env.AI_DEFAULT_PROVIDER ?? "openai";
@@ -38,9 +39,16 @@ function getFactory(providerName: string): ModelFactory {
       factory = (id) => provider.languageModel(id);
       break;
     }
+    case "deepseek": {
+      const key = process.env.DEEPSEEK_API_KEY;
+      if (!key) throw new Error("DEEPSEEK_API_KEY is required for DeepSeek provider.");
+      const provider = createDeepSeek({ apiKey: key });
+      factory = (id) => provider.languageModel(id);
+      break;
+    }
     default:
       throw new Error(
-        `Unknown AI provider "${providerName}". Supported: openai, anthropic, google`
+        `Unknown AI provider "${providerName}". Supported: openai, anthropic, google, deepseek`
       );
   }
 
