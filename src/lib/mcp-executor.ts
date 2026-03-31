@@ -1,6 +1,9 @@
 import { MCPClient, storage } from "@mcp-ts/sdk/server";
 import { supabase } from "./supabase";
 import { WorkflowJobData } from "./queue";
+import { executeAIAgentStep } from "./ai/ai-agent";
+import { evaluateAICondition } from "./ai/condition-evaluator";
+import type { AIStepConfig, AIConditionConfig, AIAgentResult } from "./ai/types";
 
 type JsonObject = Record<string, unknown>;
 
@@ -13,6 +16,7 @@ interface WorkflowStepRow {
   tool_slug: string;
   tool_arguments: JsonObject;
   depends_on_step_id: string | null;
+  run_if_condition: JsonObject | null;
   retry_on_failure: boolean | null;
   max_retries: number | null;
   timeout_seconds: number | null;
@@ -367,6 +371,84 @@ async function executeStepWithRetry(
   throw new Error("Unreachable step retry branch");
 }
 
+async function evaluateStepCondition(
+  conditionJson: JsonObject,
+  params: Record<string, unknown>,
+  stepOutputs: Record<number, StepExecutionResult>
+): Promise<{ should_execute: boolean; reasoning: string; usage?: unknown }> {
+  const condition = conditionJson as unknown as AIConditionConfig;
+
+  if (!condition.prompt) {
+    console.warn("[mcp-executor] run_if_condition has no prompt; defaulting to execute");
+    return { should_execute: true, reasoning: "No condition prompt provided" };
+  }
+
+  try {
+    return await evaluateAICondition(condition, params, stepOutputs);
+  } catch (err) {
+    console.error("[mcp-executor] AI condition evaluation failed; defaulting to execute", err);
+    return {
+      should_execute: true,
+      reasoning: `Condition evaluation failed: ${err instanceof Error ? err.message : "unknown error"}; defaulting to execute`,
+    };
+  }
+}
+
+async function executeAIStep(
+  step: WorkflowStepRow,
+  resolvedArgs: Record<string, unknown>,
+  mcpClient: MCPClient | null
+): Promise<AIAgentResult> {
+  const aiConfig: AIStepConfig = {
+    system_prompt:
+      (resolvedArgs.system_prompt as string) ?? "You are a helpful AI assistant.",
+    user_prompt: (resolvedArgs.user_prompt as string) ?? "",
+    temperature: resolvedArgs.temperature as number | undefined,
+    max_tokens: resolvedArgs.max_tokens as number | undefined,
+    max_iterations: resolvedArgs.max_iterations as number | undefined,
+    available_tools: resolvedArgs.available_tools as string[] | undefined,
+    response_format: resolvedArgs.response_format as AIStepConfig["response_format"],
+  };
+
+  if (!aiConfig.user_prompt) {
+    throw new NonRetryableExecutionError(
+      `AI step ${step.step_number} (${step.name}) requires a "user_prompt" in tool_arguments`,
+      "AI_STEP_MISSING_PROMPT"
+    );
+  }
+
+  const maxRetries = Math.max(0, step.max_retries ?? 1);
+  const allowRetries = step.retry_on_failure ?? true;
+  const maxAttempts = allowRetries ? maxRetries + 1 : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await executeAIAgentStep(aiConfig, step.tool_slug, mcpClient);
+    } catch (error) {
+      const finalAttempt = attempt >= maxAttempts;
+      const transientFailure = isTransientError(error);
+
+      if (!finalAttempt && transientFailure) {
+        const backoff = Math.min(1000 * 2 ** (attempt - 1), 30000);
+        const jitter = Math.floor(Math.random() * 300);
+        await delay(backoff + jitter);
+        continue;
+      }
+
+      if (transientFailure) {
+        throw error;
+      }
+
+      throw new NonRetryableExecutionError(
+        `AI step ${step.step_number} (${step.name}) failed: ${normalizeError(error).message}`,
+        "AI_STEP_EXECUTION_FAILED"
+      );
+    }
+  }
+
+  throw new Error("Unreachable AI step retry branch");
+}
+
 export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<WorkflowExecutionResult> {
   const startedAt = Date.now();
   const context: WorkflowExecutionResult["output"] = { params: jobData.params ?? {}, steps: {} };
@@ -416,6 +498,32 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
         }
       }
 
+      if (step.run_if_condition) {
+        const conditionResult = await evaluateStepCondition(
+          step.run_if_condition,
+          context.params,
+          context.steps
+        );
+        if (!conditionResult.should_execute) {
+          console.log(
+            `[mcp-executor] Skipping step ${step.step_number} (${step.name}): ${conditionResult.reasoning}`
+          );
+          context.steps[step.step_number] = {
+            stepId: step.id,
+            stepNumber: step.step_number,
+            stepName: step.name,
+            toolSlug: step.tool_slug,
+            output: {
+              _skipped: true,
+              _condition_reasoning: conditionResult.reasoning,
+              _condition_usage: conditionResult.usage,
+            },
+            durationMs: 0,
+          };
+          continue;
+        }
+      }
+
       const stepStartedAt = Date.now();
       const resolvedArgs = resolveVariables(
         step.tool_arguments ?? {},
@@ -423,13 +531,30 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
         context.steps
       ) as Record<string, unknown>;
 
-      const output = await executeStepWithRetry(
-        client,
-        step,
-        resolvedArgs,
-        jobData.userId,
-        jobData.sessionId
-      );
+      let output: unknown;
+
+      if (step.toolkit === "ai") {
+        const aiResult = await executeAIStep(
+          step,
+          resolvedArgs,
+          client
+        );
+        output = {
+          content: aiResult.content,
+          parsed_output: aiResult.parsed_output,
+          tool_call_log: aiResult.tool_call_log,
+          reasoning_trace: aiResult.reasoning_trace,
+          ai_usage: aiResult.usage,
+        };
+      } else {
+        output = await executeStepWithRetry(
+          client,
+          step,
+          resolvedArgs,
+          jobData.userId,
+          jobData.sessionId
+        );
+      }
 
       context.steps[step.step_number] = {
         stepId: step.id,
