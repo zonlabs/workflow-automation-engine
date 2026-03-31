@@ -1,48 +1,41 @@
-import type { AIProvider } from "./provider";
-import { OpenAIProvider } from "./providers/openai";
-import { AnthropicProvider } from "./providers/anthropic";
-import { GoogleProvider } from "./providers/google";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import type { LanguageModel } from "ai";
 
 const DEFAULT_PROVIDER = process.env.AI_DEFAULT_PROVIDER ?? "openai";
 const DEFAULT_MODEL = process.env.AI_DEFAULT_MODEL ?? "gpt-4o";
 
-const providers = new Map<string, AIProvider>();
+type ModelFactory = (modelId: string) => LanguageModel;
 
-function getOrCreateProvider(providerName: string): AIProvider {
-  const existing = providers.get(providerName);
+const factories = new Map<string, ModelFactory>();
+
+function getFactory(providerName: string): ModelFactory {
+  const existing = factories.get(providerName);
   if (existing) return existing;
 
-  let provider: AIProvider;
+  let factory: ModelFactory;
 
   switch (providerName) {
     case "openai": {
       const key = process.env.OPENAI_API_KEY;
-      if (!key) {
-        throw new Error(
-          "OPENAI_API_KEY is required for OpenAI provider. Set it in your environment."
-        );
-      }
-      provider = new OpenAIProvider(key);
+      if (!key) throw new Error("OPENAI_API_KEY is required for OpenAI provider.");
+      const provider = createOpenAI({ apiKey: key });
+      factory = (id) => provider.chat(id);
       break;
     }
     case "anthropic": {
       const key = process.env.ANTHROPIC_API_KEY;
-      if (!key) {
-        throw new Error(
-          "ANTHROPIC_API_KEY is required for Anthropic provider. Set it in your environment."
-        );
-      }
-      provider = new AnthropicProvider(key);
+      if (!key) throw new Error("ANTHROPIC_API_KEY is required for Anthropic provider.");
+      const provider = createAnthropic({ apiKey: key });
+      factory = (id) => provider.languageModel(id);
       break;
     }
     case "google": {
       const key = process.env.GOOGLE_AI_API_KEY;
-      if (!key) {
-        throw new Error(
-          "GOOGLE_AI_API_KEY is required for Google AI provider. Set it in your environment."
-        );
-      }
-      provider = new GoogleProvider(key);
+      if (!key) throw new Error("GOOGLE_AI_API_KEY is required for Google AI provider.");
+      const provider = createGoogleGenerativeAI({ apiKey: key });
+      factory = (id) => provider.languageModel(id);
       break;
     }
     default:
@@ -51,40 +44,36 @@ function getOrCreateProvider(providerName: string): AIProvider {
       );
   }
 
-  providers.set(providerName, provider);
-  return provider;
+  factories.set(providerName, factory);
+  return factory;
 }
 
-export interface ResolvedProviderModel {
-  provider: AIProvider;
+export interface ResolvedModel {
+  model: LanguageModel;
   providerName: string;
-  model: string;
+  modelId: string;
 }
 
 /**
- * Parse a tool_slug like "openai/gpt-4o" into provider + model.
+ * Parse a tool_slug like "openai/gpt-4o" into a ready-to-use AI SDK LanguageModel.
  * Falls back to AI_DEFAULT_PROVIDER / AI_DEFAULT_MODEL when the slug
- * doesn't contain a slash (e.g. just "gpt-4o" assumes the default provider).
+ * doesn't contain a slash.
  */
-export function resolveProviderAndModel(toolSlug: string): ResolvedProviderModel {
+export function resolveModel(toolSlug: string): ResolvedModel {
   let providerName: string;
-  let model: string;
+  let modelId: string;
 
   if (toolSlug.includes("/")) {
     const idx = toolSlug.indexOf("/");
     providerName = toolSlug.slice(0, idx);
-    model = toolSlug.slice(idx + 1);
+    modelId = toolSlug.slice(idx + 1);
   } else {
     providerName = DEFAULT_PROVIDER;
-    model = toolSlug || DEFAULT_MODEL;
+    modelId = toolSlug || DEFAULT_MODEL;
   }
 
-  const provider = getOrCreateProvider(providerName);
-  return { provider, providerName, model };
-}
-
-export function getProvider(name: string): AIProvider {
-  return getOrCreateProvider(name);
+  const factory = getFactory(providerName);
+  return { model: factory(modelId), providerName, modelId };
 }
 
 export function getDefaultProviderName(): string {

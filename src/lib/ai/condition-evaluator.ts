@@ -1,10 +1,7 @@
+import { generateText, stepCountIs } from "ai";
 import type { AIConditionConfig, AIConditionResult, AIUsageMetrics } from "./types";
 import { estimateCostUsd } from "./types";
-import {
-  resolveProviderAndModel,
-  getDefaultProviderName,
-  getDefaultModel,
-} from "./provider-registry";
+import { resolveModel, getDefaultProviderName, getDefaultModel } from "./provider-registry";
 
 interface StepOutput {
   stepId: string;
@@ -32,13 +29,9 @@ export async function evaluateAICondition(
   stepOutputs: Record<number, StepOutput>
 ): Promise<AIConditionResult> {
   const providerSlug = buildProviderSlug(condition);
-  const { provider, providerName, model } = resolveProviderAndModel(providerSlug);
+  const { model, providerName, modelId } = resolveModel(providerSlug);
 
-  const contextSummary = buildContextSummary(
-    condition,
-    params,
-    stepOutputs
-  );
+  const contextSummary = buildContextSummary(condition, params, stepOutputs);
 
   const userPrompt = `## Condition to evaluate
 ${condition.prompt}
@@ -48,32 +41,29 @@ ${contextSummary}
 
 Respond with JSON: {"should_execute": <boolean>, "reasoning": "<explanation>"}`;
 
-  const response = await provider.chat({
-    messages: [
-      { role: "system", content: CONDITION_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
+  const result = await generateText({
     model,
+    system: CONDITION_SYSTEM_PROMPT,
+    prompt: userPrompt,
     temperature: 0.1,
-    max_tokens: 256,
-    response_format: { type: "json_object" },
+    maxOutputTokens: 256,
+    stopWhen: stepCountIs(1),
   });
 
-  const parsed = safeParseConditionResponse(response.content);
+  const parsed = safeParseConditionResponse(result.text);
+
+  const inputTokens = result.usage.inputTokens ?? 0;
+  const outputTokens = result.usage.outputTokens ?? 0;
 
   const usage: AIUsageMetrics = {
     provider: providerName,
-    model,
-    prompt_tokens: response.usage.prompt_tokens,
-    completion_tokens: response.usage.completion_tokens,
-    total_tokens: response.usage.total_tokens,
+    model: modelId,
+    prompt_tokens: inputTokens,
+    completion_tokens: outputTokens,
+    total_tokens: inputTokens + outputTokens,
     tool_calls_count: 0,
     iterations: 1,
-    estimated_cost_usd: estimateCostUsd(
-      model,
-      response.usage.prompt_tokens,
-      response.usage.completion_tokens
-    ),
+    estimated_cost_usd: estimateCostUsd(modelId, inputTokens, outputTokens),
   };
 
   return {

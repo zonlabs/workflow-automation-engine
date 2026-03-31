@@ -1,36 +1,3 @@
-export type AIRole = "system" | "user" | "assistant" | "tool";
-
-export interface AIMessage {
-  role: AIRole;
-  content: string;
-  tool_call_id?: string;
-  tool_calls?: AIToolCall[];
-}
-
-export interface AIToolCall {
-  id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-}
-
-export interface AIToolResult {
-  tool_call_id: string;
-  name: string;
-  content: string;
-  is_error?: boolean;
-}
-
-export interface AIToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-export interface AIResponseFormat {
-  type: "text" | "json_object" | "json_schema";
-  schema?: Record<string, unknown>;
-}
-
 export interface AIStepConfig {
   system_prompt: string;
   user_prompt: string;
@@ -38,7 +5,7 @@ export interface AIStepConfig {
   max_tokens?: number;
   max_iterations?: number;
   available_tools?: string[];
-  response_format?: AIResponseFormat;
+  response_format?: { type: "text" | "json_object" | "json_schema"; schema?: Record<string, unknown> };
 }
 
 export interface AIConditionConfig {
@@ -80,39 +47,6 @@ export interface AIConditionResult {
   should_execute: boolean;
   reasoning: string;
   usage: AIUsageMetrics;
-}
-
-export interface ChatParams {
-  messages: AIMessage[];
-  model: string;
-  temperature?: number;
-  max_tokens?: number;
-  response_format?: AIResponseFormat;
-}
-
-export interface ChatResponse {
-  content: string;
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-  finish_reason: string;
-}
-
-export interface ChatWithToolsParams extends ChatParams {
-  tools: AIToolDefinition[];
-}
-
-export interface ToolChatResponse {
-  content: string | null;
-  tool_calls: AIToolCall[];
-  usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-  finish_reason: string;
 }
 
 const COST_PER_MILLION: Record<string, { input: number; output: number }> = {
