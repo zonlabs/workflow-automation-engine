@@ -1,4 +1,4 @@
-import { MCPClient, storage } from "@mcp-ts/sdk/server";
+import { MCPClient, MultiSessionClient, storage } from "@mcp-ts/sdk/server";
 import { supabase } from "./supabase";
 import { WorkflowJobData } from "./queue";
 import { executeAIAgentStep } from "./ai/ai-agent";
@@ -397,7 +397,7 @@ async function evaluateStepCondition(
 async function executeAIStep(
   step: WorkflowStepRow,
   resolvedArgs: Record<string, unknown>,
-  mcpClient: MCPClient | null
+  mcpClient: MCPClient | MultiSessionClient | null
 ): Promise<AIAgentResult> {
   const aiConfig: AIStepConfig = {
     system_prompt:
@@ -458,6 +458,7 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
   }
 
   let client: MCPClient | null = null;
+  let multiClient: MultiSessionClient | null = null;
 
   try {
     await updateExecutionLog(jobData.executionLogId, {
@@ -484,6 +485,12 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
       sessionId: jobData.sessionId,
     });
     await client.connect();
+
+    const hasAISteps = steps.some((s) => s.toolkit === "ai");
+    if (hasAISteps) {
+      multiClient = new MultiSessionClient(jobData.userId);
+      await multiClient.connect();
+    }
 
     for (const step of steps) {
       if (step.depends_on_step_id) {
@@ -537,7 +544,7 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
         const aiResult = await executeAIStep(
           step,
           resolvedArgs,
-          client
+          multiClient ?? client
         );
         output = {
           content: aiResult.content,
@@ -609,6 +616,13 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
       error: normalized,
     };
   } finally {
+    if (multiClient) {
+      try {
+        multiClient.disconnect();
+      } catch {
+        // Ignore disconnect failures.
+      }
+    }
     if (client) {
       try {
         await client.disconnect("workflow-execution-complete");

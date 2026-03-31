@@ -1,7 +1,7 @@
 import { generateText, stepCountIs } from "ai";
 import type { ToolSet, StepResult } from "ai";
 import { AIAdapter } from "@mcp-ts/sdk/adapters/ai";
-import type { MCPClient } from "@mcp-ts/sdk/server";
+import type { MCPClient, MultiSessionClient } from "@mcp-ts/sdk/server";
 import type {
   AIStepConfig,
   AIAgentResult,
@@ -19,7 +19,7 @@ const RESULT_PREVIEW_LIMIT = 2000;
 export async function executeAIAgentStep(
   config: AIStepConfig,
   toolSlug: string,
-  mcpClient: MCPClient | null
+  mcpClient: MCPClient | MultiSessionClient | null
 ): Promise<AIAgentResult> {
   const { model, providerName, modelId } = resolveModel(toolSlug);
   const maxIterations = config.max_iterations ?? MAX_ITERATIONS;
