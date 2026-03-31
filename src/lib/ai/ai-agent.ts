@@ -16,6 +16,19 @@ const MAX_TOKENS_PER_STEP = Number(process.env.AI_MAX_TOKENS_PER_STEP ?? "16384"
 const AGENT_TIMEOUT_MS = Number(process.env.AI_AGENT_TIMEOUT_MS ?? "120000");
 const RESULT_PREVIEW_LIMIT = 2000;
 
+const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  "deepseek-chat": 8192,
+  "deepseek-reasoner": 8192,
+  "gpt-4o": 16384,
+  "gpt-4o-mini": 16384,
+  "gpt-4.1": 32768,
+  "gpt-4.1-mini": 32768,
+  "gpt-4.1-nano": 32768,
+  "claude-sonnet-4-20250514": 8192,
+  "claude-3-5-haiku-20241022": 8192,
+  "gemini-2.0-flash": 8192,
+};
+
 export async function executeAIAgentStep(
   config: AIStepConfig,
   toolSlug: string,
@@ -23,7 +36,8 @@ export async function executeAIAgentStep(
 ): Promise<AIAgentResult> {
   const { model, providerName, modelId } = resolveModel(toolSlug);
   const maxIterations = config.max_iterations ?? MAX_ITERATIONS;
-  const maxTokens = config.max_tokens ?? MAX_TOKENS_PER_STEP;
+  const modelCap = MODEL_MAX_OUTPUT_TOKENS[modelId] ?? 8192;
+  const maxTokens = Math.min(config.max_tokens ?? MAX_TOKENS_PER_STEP, modelCap);
 
   let tools: ToolSet = {};
   if (mcpClient && config.available_tools?.length) {
