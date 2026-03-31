@@ -422,7 +422,7 @@ REDIS_PASSWORD=
 
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=your-service-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-key
 SUPABASE_ANON_KEY=your-anon-key
 
 # MCP
@@ -572,7 +572,7 @@ docker build -t workflow-engine .
 docker run -d \
   -e REDIS_HOST=redis-prod \
   -e SUPABASE_URL=your-url \
-  -e SUPABASE_SERVICE_KEY=your-key \
+  -e SUPABASE_SERVICE_ROLE_KEY=your-key \
   -e WORKER_CONCURRENCY=10 \
   workflow-engine
 ```
@@ -584,7 +584,7 @@ docker run -d \
 - [ ] Configure Redis for persistence
 - [ ] Enable Supabase backups
 - [ ] Set up monitoring/alerting
-- [ ] Use strong `SUPABASE_SERVICE_KEY`
+- [ ] Use strong `SUPABASE_SERVICE_ROLE_KEY`
 - [ ] Enable RLS on database tables
 - [ ] Set up log aggregation
 - [ ] Configure rate limiting

@@ -14,10 +14,12 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@mcp-ts/sdk": "^1.3.6",
     "@supabase/supabase-js": "^2.38.0",
     "bullmq": "^5.0.0",
-    "cron-parser": "^4.9.1",
+    "cron-parser": "^5.5.0",
     "dotenv": "^16.3.1",
+    "ioredis": "^5.9.3",
     "redis": "^4.6.11"
   },
   "devDependencies": {
