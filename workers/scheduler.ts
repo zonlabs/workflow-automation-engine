@@ -63,8 +63,9 @@ async function checkAndEnqueueSchedules() {
   for (const schedule of schedules) {
     if (!activeWfIds.has(schedule.workflow_id as string)) continue;
 
-    const lastRun = schedule.last_run_at
-      ? new Date(schedule.last_run_at as string)
+    const rawLastRun = schedule.last_run_at as string | null;
+    const lastRun = rawLastRun
+      ? new Date(rawLastRun.endsWith("Z") ? rawLastRun : rawLastRun + "Z")
       : new Date(now.getTime() - 2 * 60 * 1000);
 
     if (!isDue(schedule.cron_expression as string, lastRun, now)) {
@@ -113,10 +114,14 @@ async function checkAndEnqueueSchedules() {
         params: (schedule.params as Record<string, unknown>) ?? {},
       });
 
-      await supabase
+      const { error: updateErr } = await supabase
         .from("scheduled_workflows")
         .update({ last_run_at: now.toISOString() })
         .eq("id", schedule.id);
+
+      if (updateErr) {
+        console.error(`[scheduler] Failed to update last_run_at for ${schedule.id}: ${updateErr.message}`);
+      }
 
       enqueued++;
       console.log(
