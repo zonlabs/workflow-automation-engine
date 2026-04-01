@@ -114,13 +114,24 @@ async function checkAndEnqueueSchedules() {
         params: (schedule.params as Record<string, unknown>) ?? {},
       });
 
+      const params = (schedule.params as Record<string, unknown>) ?? {};
+      const isOneTime = params._one_time === true;
+
+      const updatePatch: Record<string, unknown> = { last_run_at: now.toISOString() };
+      if (isOneTime) {
+        updatePatch.is_enabled = false;
+        updatePatch.status = "disabled";
+      }
+
       const { error: updateErr } = await supabase
         .from("scheduled_workflows")
-        .update({ last_run_at: now.toISOString() })
+        .update(updatePatch)
         .eq("id", schedule.id);
 
       if (updateErr) {
-        console.error(`[scheduler] Failed to update last_run_at for ${schedule.id}: ${updateErr.message}`);
+        console.error(`[scheduler] Failed to update schedule ${schedule.id}: ${updateErr.message}`);
+      } else if (isOneTime) {
+        console.log(`[scheduler] One-time schedule ${schedule.id} auto-disabled after execution`);
       }
 
       enqueued++;
