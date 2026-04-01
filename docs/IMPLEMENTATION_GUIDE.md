@@ -1,8 +1,15 @@
 # 🚀 Workflow Automation Engine - Rube-Like Enhancement Guide
 
+> **Honest Note:** This guide is based on:
+> - ✅ **Verified**: Rube's actual tool descriptions and capabilities
+> - ⚠️ **Inferred**: Best architectural practices (not Rube's exact internals)
+> - ❌ **NOT Claimed**: Exact implementation details of Rube's system
+
+---
+
 ## Overview
 
-This guide explains how to add **Workbench**, **Memory**, and **LLM Planning** capabilities to your workflow engine, making it comparable to Rube's architecture.
+This guide explains how to add **Workbench**, **Memory**, and **LLM Planning** capabilities to your workflow engine, inspired by similar patterns in automation tools like Rube.
 
 **Target Timeline:** 6-10 weeks (Phase by Phase)
 
@@ -12,57 +19,58 @@ This guide explains how to add **Workbench**, **Memory**, and **LLM Planning** c
 
 ### What You Have Now ✅
 ```
-┌─────────────────┐
-│   API/Routes    │
-└────────┬────────┘
+┌─────────────────────┐
+│   API/Routes        │
+└────────┬────────────┘
          │
-┌────────▼────────────────────┐
-│   Workflow Executor          │
-│  (MCP Tool Execution)        │
-└────────┬─────────────────────┘
+┌────────▼─────────────────────┐
+│   Workflow Executor           │
+│  (MCP Tool Execution)         │
+└────────┬──────────────────────┘
          │
-┌────────▼────────────────────┐
-│   BullMQ Job Queue           │
-│   + Redis + Cron Scheduler   │
-└────────┬─────────────────────┘
+┌────────▼─────────────────────┐
+│   BullMQ Job Queue + Redis    │
+│   + Cron Scheduler            │
+└────────┬──────────────────────┘
          │
-┌────────▼────────────────────┐
-│   Supabase PostgreSQL        │
-│   (Logs, History)            │
+┌────────▼─────────────────────┐
+│   Supabase PostgreSQL         │
+│   (Logs, History)             │
 └──────────────────────────────┘
 ```
 
-### What You Need ✨
+### What to Add ✨
 ```
 ┌──────────────────────────────────┐
 │   API/Routes                     │
 │  + /workflows/generate (NEW)     │
 └────────┬─────────────────────────┘
          │
-    ┌────────▼──────────────────────────┐
+    ┌────▼──────────────────────────────┐
     │   Workflow Executor               │
     │  - MCP Tool Execution             │
     │  + Workbench Execution (NEW)      │
     │  + Memory Resolution (NEW)        │
     │  + LLM Planning (NEW)             │
-    └────────┬───────────────────────────┘
-             │
-    ┌────────▼──────────────────────────┐
+    └────┬───────────────────────────────┘
+         │
+    ┌────▼──────────────────────────────┐
     │   Job Handlers                    │
     │  - workflow-worker                │
     │  - scheduler                      │
     │  + workbench-worker (NEW)         │
     │  + memory-cleanup-worker (NEW)    │
-    └────────┬───────────────────────────┘
-             │
-    ┌────────▼──────────────────────────┐
+    └────┬───────────────────────────────┘
+         │
+    ┌────▼──────────────────────────────┐
     │   Data & Context                  │
     │  - BullMQ Queue + Redis           │
     │  + Python Sandbox (NEW)           │
     │  + Memory KV Store (NEW)          │
-    └────────┬───────────────────────────┘
-             │
-    ┌────────▼──────────────────────────┐
+    │  + S3/Storage for Artifacts (NEW) │
+    └────┬───────────────────────────────┘
+         │
+    ┌────▼──────────────────────────────┐
     │   Supabase PostgreSQL             │
     │  - execution_logs                 │
     │  - scheduled_workflows            │
@@ -76,54 +84,38 @@ This guide explains how to add **Workbench**, **Memory**, and **LLM Planning** c
 ## 🎯 Key Capabilities You'll Unlock
 
 ### 1. Workbench (Complex Analysis)
-**Before:** Can only call single tools
-```json
-{
-  "step": "Fetch emails",
-  "tool": "GMAIL_FETCH_EMAILS",
-  "result": "10 emails"
-}
-```
+**Problem:** Can only call single tools  
+**Solution:** Execute complex Python analysis with data processing
 
-**After:** Can process & analyze bulk data
 ```json
 {
   "step": "Analyze 100 emails with AI",
   "type": "workbench",
-  "code": "
-    emails = context['steps'][0]['output']
-    summary = invoke_llm(f'Summarize: {str(emails)}')
-    output = {'summary': summary}
-  ",
-  "result": "Detailed analysis of all 100 emails in parallel"
+  "code": "emails = context['steps'][0]['output']...analysis = invoke_llm(...)",
+  "result": "Detailed insights from all data"
 }
 ```
 
 ### 2. Memory (Context Persistence)
-**Before:** Every run starts fresh
-```
-Run 1: Fetch Slack #general (save channel_id = C123)
-Run 2: What's the channel ID? ❌ Don't know - fetch again
-```
+**Problem:** Every workflow run starts from scratch  
+**Solution:** Remember facts across runs to optimize API calls
 
-**After:** Remember across runs
-```
-Run 1: Fetch Slack #general, save memory['channel_id'] = 'C123'
-Run 2: Use {{memory.channel_id}} directly - no extra API call!
+```typescript
+// Run 1: Save
+await memory.set('slack_general_id', 'C123')
+
+// Run 2-365: Reuse
+const channelId = await memory.get('slack_general_id')
+// ✅ No API call needed
 ```
 
 ### 3. LLM Planning (Intelligent Automation)
-**Before:** Workflows are static
-```
-User: "Create daily report"
-You: manually design the workflow
-```
+**Problem:** Workflows are manually designed  
+**Solution:** AI generates workflows from natural language goals
 
-**After:** AI designs the workflow
 ```
-User: "Create daily report"
-API: POST /api/workflows/generate
-Response: Full workflow with 5 steps auto-generated by Claude
+User: "Create daily report and send to Slack"
+AI: [Auto-generates multi-step workflow]
 ```
 
 ---
@@ -133,192 +125,195 @@ Response: Full workflow with 5 steps auto-generated by Claude
 ### Phase 1: Workbench (1-2 weeks)
 Goal: Enable complex data processing and parallel execution
 
-**Why First:** Enables analysis workflows (most impactful use case)
+**Architecture:**
+- TypeScript spawns isolated Python process
+- Pass context via JSON file
+- Execute Python code
+- Capture output
+- Cleanup temp files
 
-**Files to Create/Modify:**
+**Key Decision:** File artifact handling
+- Simple: Return only JSON results (no file persistence)
+- Advanced: Upload files to S3 for sharing
+
+**Files to Create:**
 - ✨ `src/lib/workbench.ts` - Python sandbox executor
 - ✨ `src/workers/workbench-worker.ts` - Job handler
 - 📝 Update `src/lib/workflow-executor.ts` - Add workbench step support
-- 📝 Update `database.sql` - Add workbench_executions table
-
-**What You Can Do After:**
-- Process 500 emails in parallel → summarize
-- Transform CSV data → analyze metrics
-- Generate images/videos in background
-- Train simple ML models on data
 
 ---
 
 ### Phase 2: Memory (2-3 weeks)
-Goal: Enable context persistence and intelligent decisions
+Goal: Enable context persistence and optimization
 
-**Why Second:** Builds on Phase 1; enables optimization
+**Architecture:**
+- Store key-value pairs in Supabase JSONB
+- Scoped per workflow (workflow_id is key)
+- Load at start, save after steps
 
-**Files to Create/Modify:**
+**Key Decision:** What to remember
+- Entity IDs (expensive lookups)
+- User preferences (consistent behavior)
+- Workflow state (progress tracking)
+
+**Files to Create:**
 - ✨ `src/lib/memory.ts` - MemoryManager class
-- ✨ `src/workers/memory-cleanup-worker.ts` - TTL cleanup
-- 📝 Update `src/lib/variable-resolver.ts` - Add memory variable support
-- 📝 Update `src/lib/workflow-executor.ts` - Load/save memory
-- 📝 Update `database.sql` - Add workflow_memory table
-- 📝 Update API routes - Add /api/memory endpoints
-
-**What You Can Do After:**
-- Remember user preferences across workflow runs
-- Cache entity IDs (Slack channels, GitHub repos, etc.)
-- Track state (last processed email, count, etc.)
-- Reduce API calls by caching resolution
+- 📝 Update `database.sql` - workflow_memory table
+- 📝 Update `src/lib/variable-resolver.ts` - memory variable support
 
 ---
 
 ### Phase 3: Planning/Agent (3-4 weeks)
-Goal: Enable intelligent workflow generation
+Goal: Enable intelligent workflow generation from goals
 
-**Why Third:** Enhances user experience; builds on Phases 1-2
+**Architecture:**
+- Send goal + available tools to Claude
+- Claude generates workflow JSON
+- Validate before execution
+- Execute generated workflow
 
-**Files to Create/Modify:**
+**Key Decision:** LLM Provider
+- Anthropic Claude (fast, accurate)
+- OpenAI GPT (alternative)
+- Open source models (cost-effective)
+
+**Files to Create:**
 - ✨ `src/lib/agent.ts` - LLM-based planner
-- ✨ `src/lib/validator.ts` - Workflow validation
 - ✨ `src/api/agent.ts` - Agent API routes
-- 📝 Update API for conditional execution
+- 📝 Update `src/lib/validator.ts` - Workflow validation
 
-**What You Can Do After:**
-- Users say "Create daily report" → auto-generated workflow
-- Workflows adapt based on previous results
-- Conditional branching (run_if conditions)
-- Error recovery patterns
+---
+
+## ⚠️ Important: Verify Before Copying Rube Exactly
+
+### How Rube Actually Works
+✅ **Verified from Rube's tool descriptions:**
+- Has a Python sandbox (COMPOSIO_REMOTE_WORKBENCH)
+- Supports file upload (`upload_local_file()` → S3/R2)
+- Has memory parameter (app_name → string arrays)
+- Supports LLM calls (`invoke_llm()` helper)
+- 4-minute timeout on executions
+- Parallel execution (ThreadPoolExecutor)
+
+⚠️ **NOT verified (implementation details we DON'T know):**
+- Exact database schema for persistence
+- Exact file cleanup process
+- Whether memory is in-DB or in-memory
+- Exact LLM planning prompt format
+- When artifacts are uploaded automatically vs manually
+
+### Recommendation
+**Don't try to match Rube exactly.** Instead:
+1. Use verified patterns (Python sandbox, S3 uploads)
+2. Design based on YOUR needs (not Rube's internals)
+3. Test your implementation empirically
+4. Document YOUR design decisions clearly
+
+---
+
+## 💡 Design Decisions for Your Engine
+
+### Decision 1: Workbench Execution Model
+**Option A: Subprocess (Recommended)**
+- Pros: Isolated, simple, standard
+- Cons: Process overhead per execution
+- Use: Most workflows
+
+**Option B: Persistent Process**
+- Pros: Faster execution
+- Cons: Complex state management
+- Use: High-frequency, low-latency needs
+
+### Decision 2: File Artifact Handling
+**Option A: Temp Files Only**
+- Cleanup after execution
+- Return only JSON results
+- No S3 needed
+- Use: Internal analysis
+
+**Option B: Upload to S3**
+- Keep files in cloud storage
+- Return shareable URLs
+- Requires S3/storage service
+- Use: Share with users/systems
+
+### Decision 3: Memory Storage
+**Option A: Database (Recommended for you)**
+- Persistent across workflows
+- You already have Supabase
+- Easy to query and manage
+- Use: Multi-run optimization
+
+**Option B: In-Memory Only**
+- Faster during execution
+- Lost on restart
+- Simpler implementation
+- Use: Single-run optimization
+
+### Decision 4: LLM Provider
+**Option A: Anthropic Claude**
+- Fast, reliable
+- Good at planning
+- Moderate cost
+
+**Option B: OpenAI GPT**
+- Widely used
+- Strong at reasoning
+- Higher cost
+
+**Option C: Open Source**
+- Ollama, Llama2
+- Free/self-hosted
+- Requires GPU
 
 ---
 
 ## 🚀 Quick Start (Phase 1 - Today)
 
-### Step 1: Copy Starter Code
-See the `STARTER_CODE.md` file in this branch for ready-to-use implementations.
+### Minimal Viable Workbench
 
-### Step 2: Database Setup
-```sql
--- Add to database.sql
-CREATE TABLE workbench_executions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  scheduled_workflow_id UUID REFERENCES scheduled_workflows(id),
-  workflow_id UUID REFERENCES workflows(id),
-  code TEXT NOT NULL,
-  status TEXT CHECK (status IN ('pending', 'running', 'success', 'failed')),
-  output JSONB,
-  error_message TEXT,
-  error_stack TEXT,
-  timeout_seconds INTEGER,
-  started_at TIMESTAMP,
-  completed_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_workbench_executions_workflow_id 
-  ON workbench_executions(workflow_id);
+**1. Create executor** (`src/lib/workbench.ts`):
+```typescript
+export async function executeWorkbench(code: string, context: any) {
+  // Write code to file
+  // Execute Python
+  // Return output
+  // Cleanup
+}
 ```
 
-### Step 3: Implement Workbench
-1. Copy `src/lib/workbench.ts` from starter code
-2. Update `src/lib/workflow-executor.ts` to support `type: 'workbench'`
-3. Test with example workflow
+**2. Update workflow executor** to support `type: 'workbench'`
 
-**Time: 1-2 hours**
+**3. Test with simple workflow**
+
+**Time: 2-3 hours**
 
 ---
 
-## 📁 Complete File Structure (After All Phases)
+## 📁 File Structure (After All Phases)
 
 ```
-workflow-automation-engine/
+src/
+├── lib/
+│   ├── mcp-executor.ts           ✓ (EXISTS)
+│   ├── workflow-executor.ts       ✓ (EXISTS → UPDATE)
+│   ├── variable-resolver.ts      ✓ (EXISTS → UPDATE)
+│   ├── memory.ts                 ✨ NEW (Phase 2)
+│   ├── workbench.ts              ✨ NEW (Phase 1)
+│   ├── agent.ts                  ✨ NEW (Phase 3)
+│   └── validator.ts              ✨ NEW (Phase 3)
 │
-├── src/
-│   ├── lib/
-│   │   ├── mcp-executor.ts           ✓ (EXISTS)
-│   │   ├── workflow-executor.ts       ✓ (EXISTS → UPDATE)
-│   │   ├── queue.ts                  ✓ (EXISTS)
-│   │   ├── redis.ts                  ✓ (EXISTS)
-│   │   ├── supabase.ts               ✓ (EXISTS)
-│   │   ├── variable-resolver.ts      ✓ (EXISTS → UPDATE)
-│   │   │
-│   │   ├── memory.ts                 ✨ NEW (Phase 2)
-│   │   ├── workbench.ts              ✨ NEW (Phase 1)
-│   │   ├── agent.ts                  ✨ NEW (Phase 3)
-│   │   ├── validator.ts              ✨ NEW (Phase 3)
-│   │   └── types.ts                  ✨ NEW (Shared types)
-│   │
-│   ├── workers/
-│   │   ├── workflow-worker.ts        ✓ (EXISTS → UPDATE)
-│   │   ├── scheduler.ts              ✓ (EXISTS)
-│   │   ├── workbench-worker.ts       ✨ NEW (Phase 1)
-│   │   └── memory-cleanup-worker.ts  ✨ NEW (Phase 2)
-│   │
-│   ├── api/
-│   │   ├── routes.ts                 ✓ (EXISTS → UPDATE)
-│   │   ├── workflows.ts              📝 ENHANCE
-│   │   ├── memory.ts                 ✨ NEW (Phase 2)
-│   │   ├── agent.ts                  ✨ NEW (Phase 3)
-│   │   └── scheduled-workflows.ts    📝 ENHANCE
-│   │
-│   └── types/
-│       ├── workflow.ts               ✨ NEW
-│       ├── memory.ts                 ✨ NEW
-│       └── workbench.ts              ✨ NEW
+├── workers/
+│   ├── workflow-worker.ts        ✓ (EXISTS → UPDATE)
+│   ├── scheduler.ts              ✓ (EXISTS)
+│   ├── workbench-worker.ts       ✨ NEW (Phase 1)
+│   └── memory-cleanup-worker.ts  ✨ NEW (Phase 2)
 │
-├── database.sql                       ✓ (EXISTS → UPDATE)
-├── docker-compose.yml                ✓ (EXISTS → UPDATE)
-├── package.json                       ✓ (EXISTS → UPDATE)
-│
-├── docs/
-│   ├── IMPLEMENTATION_GUIDE.md        ✨ THIS FILE
-│   ├── ARCHITECTURE.md                ✨ NEW
-│   ├── API_REFERENCE.md               ✨ NEW (Phase by phase)
-│   ├── EXAMPLES.md                    ✨ NEW
-│   └── DEPLOYMENT.md                  ✨ NEW
-│
-└── tests/
-    ├── workbench.test.ts             ✨ NEW (Phase 1)
-    ├── memory.test.ts                ✨ NEW (Phase 2)
-    └── agent.test.ts                 ✨ NEW (Phase 3)
+└── api/
+    ├── routes.ts                 ✓ (EXISTS → UPDATE)
+    ├── agent.ts                  ✨ NEW (Phase 3)
+    └── memory.ts                 ✨ NEW (Phase 2)
 ```
-
----
-
-## 💡 Key Design Decisions
-
-### 1. Workbench Execution
-- **Python Sandbox:** Spawned as isolated process (not persistent)
-- **Context Passing:** Via JSON files (safe, isolated)
-- **Timeout:** 4 minutes per execution (configurable)
-- **Memory Limit:** 512MB per execution (configurable)
-
-Why this approach?
-- ✓ Secure (isolated from main process)
-- ✓ Simple (no complex IPC)
-- ✓ Scalable (easy to run multiple in parallel)
-- ✓ Language agnostic (can swap Python for Node, Go, etc)
-
-### 2. Memory System
-- **Storage:** Supabase JSONB (scalable, queryable)
-- **Scope:** Per-workflow (workflow_id is primary key)
-- **TTL:** Optional expiration (cleanup via background job)
-- **Pattern:** Key-value (flexible, simple)
-
-Why this approach?
-- ✓ Persistent (survives worker restarts)
-- ✓ Queryable (can search memory)
-- ✓ Scoped (no cross-workflow data leaks)
-- ✓ Simple (just set/get/delete)
-
-### 3. LLM Planning
-- **Provider:** Anthropic Claude (can swap for GPT, etc)
-- **Model:** claude-3-5-sonnet-20241022 (fast, accurate)
-- **Cache:** Workflow definitions (reuse across runs)
-- **Validation:** Schema validation before execution
-
-Why this approach?
-- ✓ Cost-effective (reuse cached workflows)
-- ✓ Flexible (easy to swap models)
-- ✓ Safe (validate before executing)
-- ✓ Simple (just prompt → JSON response)
 
 ---
 
@@ -326,23 +321,23 @@ Why this approach?
 
 ### Unit Tests
 ```typescript
-// Test memory
-await memoryManager.set('workflow-123', 'key', 'value')
-const result = await memoryManager.get('workflow-123', 'key')
-assert(result === 'value')
+// Test workbench execution
+const result = await executeWorkbench('output = 2 + 2', {})
+assert(result === 4)
 
-// Test workbench
-const output = await executeWorkbench('output = 2 + 2', {})
-assert(output === 4)
+// Test memory
+await memory.set('test', 'key', 'value')
+const retrieved = await memory.get('test', 'key')
+assert(retrieved === 'value')
 
 // Test agent
 const workflow = await generateWorkflow('send daily report')
-assert(workflow.name.length > 0)
+assert(workflow.workflow.length > 0)
 ```
 
 ### Integration Tests
 ```typescript
-// Test full workflow with memory + workbench
+// Test full workflow with all phases
 const execution = await executeWorkflow({
   workflow: [
     { step_number: 1, type: 'workbench', code: '...' },
@@ -350,128 +345,89 @@ const execution = await executeWorkflow({
   ],
   workflowId: 'test-123'
 })
+assert(execution.status === 'success')
 ```
 
 ### End-to-End Tests
 ```bash
 # Test via API
 POST /api/workflows/generate
-{ "goal": "Send daily email report" }
+{ "goal": "Create daily report" }
 
-# Verify workflow structure
+# Verify output
 assert(response.workflow.length > 0)
-assert(response.workflow[0].toolkit !== undefined)
 ```
 
 ---
 
-## 📈 Monitoring & Logging
-
-### Key Metrics to Track
-- **Workbench execution time** (ms) - slow executions
-- **Memory usage** per workflow - growing memory
-- **LLM planning success rate** (%) - AI reliability
-- **Tool execution failures** by type - which tools fail
-- **Workflow completion rate** (%) - overall reliability
-
-### Logging Strategy
-```typescript
-// Log structure
-{
-  timestamp: '2025-04-01T22:53:51Z',
-  component: 'workbench-executor',
-  action: 'execute_code',
-  workflowId: 'uuid',
-  status: 'success' | 'failed',
-  duration_ms: 1234,
-  error: 'if failed',
-  metadata: { code_length, output_size, ... }
-}
-```
-
----
-
-## 🔒 Security Considerations
+## ⚠️ Security Considerations
 
 ### Workbench Isolation
-- ✓ Runs as separate process (not same as main app)
-- ✓ Cannot access environment variables
-- ✓ Cannot write to filesystem (except /tmp)
-- ✓ Limited system calls via sandbox
-- ✓ Timeout protection (kill process after 4 min)
+- ✅ Runs as separate process
+- ✅ Timeout protection (4 min)
+- ❓ Filesystem access restrictions (implement as needed)
+- ❓ Network restrictions (implement as needed)
 
 ### Memory Access Control
-- ✓ Scoped to workflow owner
-- ✓ Audit logging for access
-- ✓ TTL-based cleanup of sensitive data
-- ✓ JSONB validation on storage
+- ✅ Scoped to workflow owner
+- ⚠️ Add audit logging
+- ⚠️ Implement TTL on sensitive data
 
 ### LLM Planning Safety
-- ✓ Workflow schema validation before execution
-- ✓ Tool whitelist (only approved tools allowed)
-- ✓ Dry-run option (preview before executing)
-- ✓ Rate limiting on planning requests
+- ✅ Validate workflow schema before execution
+- ⚠️ Tool whitelist (only approved tools)
+- ⚠️ Dry-run option (preview before executing)
 
 ---
 
 ## 🚦 Deployment Checklist
 
 ### Pre-Deployment
-- [ ] All unit tests passing
-- [ ] All integration tests passing
-- [ ] Code reviewed and approved
-- [ ] Database migrations tested on staging
-- [ ] Load testing completed
-- [ ] Security audit passed
+- [ ] All tests passing
+- [ ] Code reviewed
+- [ ] Database migrations tested
+- [ ] Load testing done
+- [ ] Security review passed
 
 ### Deployment
-- [ ] Backup database before migration
-- [ ] Run database migrations
-- [ ] Deploy code to staging
-- [ ] Run smoke tests
-- [ ] Deploy to production (blue-green or canary)
-- [ ] Monitor error rates for 1 hour
+- [ ] Backup database
+- [ ] Run migrations
+- [ ] Deploy to staging
+- [ ] Smoke tests pass
+- [ ] Monitor error rates
 
 ### Post-Deployment
-- [ ] Monitor memory usage
-- [ ] Check workbench execution times
-- [ ] Verify LLM accuracy
-- [ ] Review error logs
+- [ ] Monitor workbench execution times
+- [ ] Monitor memory growth
+- [ ] Check LLM accuracy
 - [ ] Gather user feedback
 
 ---
 
 ## 📚 Additional Resources
 
-- **STARTER_CODE.md** - Copy-paste ready code for Phase 1
-- **ANALYSIS.md** - Deep dive gap analysis
-- **API_REFERENCE.md** - Complete API documentation
-- **EXAMPLES.md** - Real-world workflow examples
-- **TROUBLESHOOTING.md** - Common issues & solutions
+- **STARTER_CODE.md** - Copy-paste ready code
+- **ANALYSIS.md** - Detailed gap analysis
+- **VERIFICATION.md** - How to test Rube's actual behavior
 
 ---
 
-## 🤝 Contributing
+## 🤝 Questions & Verification
 
-Want to help? Here's how:
+### How to Verify Behavior
+1. Test with Rube's actual workflows
+2. Check tool descriptions for "what's possible"
+3. Don't assume exact internals
+4. Design YOUR system based on YOUR needs
 
-1. **Pick a phase** (1, 2, or 3)
-2. **Create a feature branch** from this branch
-3. **Implement one component** (e.g., `memory.ts`)
-4. **Write tests** for your component
-5. **Submit PR** for review
-
----
-
-## 📞 Questions?
-
-Check the documentation or open an issue with:
-- What you're trying to do
-- What error you got
-- What you expected
+### Getting Help
+- Check Rube's tool descriptions for verified facts
+- Test behavior empirically
+- Ask Rube directly about its implementation
+- Document YOUR design decisions
 
 ---
 
 **Last Updated:** April 1, 2026  
-**Status:** Ready for implementation  
-**Maintainer:** @zonlabs
+**Status:** Verified facts only  
+**Note:** Based on Rube's confirmed capabilities, not its internal implementation

@@ -1,6 +1,29 @@
 # WORKFLOW ENGINE - STARTER CODE (Phase 1)
 
-## 1️⃣  Add Memory Support (START HERE - 1 HOUR)
+> **Important Note:** 
+> - This code is based on **sound architectural principles**, not exact Rube internals
+> - Rube confirms S3 file upload works (`upload_local_file()` → S3/R2)
+> - Implementation details are YOUR design choice
+> - Test empirically in YOUR system
+
+---
+
+## 1️⃣ Add Memory Support (START HERE - 1 HOUR)
+
+### What Memory Does
+```typescript
+// Without memory:
+Run 1: Fetch Slack channel ID (API call)
+Run 2: Fetch Slack channel ID AGAIN (API call)
+Run 3: Fetch Slack channel ID AGAIN (API call)
+// 365+ duplicate API calls per year!
+
+// With memory:
+Run 1: Fetch Slack channel ID, SAVE to memory
+Run 2: Use memory['slack_channel_id']
+Run 3: Use memory['slack_channel_id']
+// Only 1 API call needed!
+```
 
 ### Step A: Create Database Table
 ```sql
@@ -16,7 +39,6 @@ CREATE TABLE workflow_memory (
 );
 
 CREATE INDEX idx_workflow_memory_workflow_id ON workflow_memory(workflow_id);
-CREATE INDEX idx_workflow_memory_key ON workflow_memory(key);
 ```
 
 ### Step B: Create Memory Manager
@@ -48,8 +70,7 @@ export class MemoryManager {
       .eq('workflow_id', workflowId)
     
     if (key) {
-      query = query.eq('key', key)
-      const { data, error } = await query.single()
+      const { data, error } = await query.eq('key', key).single()
       return { [key]: data?.value }
     }
     
@@ -78,18 +99,6 @@ export class MemoryManager {
       throw error
     }
   }
-
-  async clear(workflowId: string): Promise<void> {
-    const { error } = await supabase
-      .from('workflow_memory')
-      .delete()
-      .eq('workflow_id', workflowId)
-    
-    if (error) {
-      console.error(`Failed to clear memory for ${workflowId}:`, error)
-      throw error
-    }
-  }
 }
 
 export const memoryManager = new MemoryManager()
@@ -97,7 +106,7 @@ export const memoryManager = new MemoryManager()
 
 ### Step C: Update Workflow Executor
 ```typescript
-// src/lib/workflow-executor.ts - Update the execute function
+// src/lib/workflow-executor.ts
 
 import { memoryManager } from './memory'
 
@@ -107,7 +116,7 @@ export async function executeWorkflow(
   params: Record<string, any>,
   scheduledWorkflowId?: string
 ) {
-  // Load memory at start
+  // Load memory at start of workflow
   const memory = await memoryManager.get(workflowId)
   
   const context = {
@@ -117,7 +126,7 @@ export async function executeWorkflow(
     scheduled_workflow_id: scheduledWorkflowId
   }
 
-  // ... existing step execution loop ...
+  // Execute each step
   for (const step of workflow.workflow) {
     // ... execute step ...
     
@@ -144,7 +153,7 @@ export async function executeWorkflow(
 
 ### Step D: Update Variable Resolver
 ```typescript
-// src/lib/variable-resolver.ts - Add memory support
+// src/lib/variable-resolver.ts
 
 export function resolveVariable(expr: string, context: any): any {
   // Handle {{memory.key}} pattern
@@ -182,7 +191,16 @@ function getValue(obj: any, path: string): any {
 
 ---
 
-## 2️⃣  Add Workbench Support (1.5 HOURS)
+## 2️⃣ Add Workbench Support (1.5 HOURS)
+
+### What Workbench Does
+```
+Before: Run single tools only
+Fetch 100 emails → Can't analyze them
+
+After: Run complex Python analysis
+Fetch 100 emails → Pass to Python → Analyze with LLM → Get insights
+```
 
 ### Step A: Create Workbench Executor
 ```typescript
@@ -210,24 +228,24 @@ export async function executeWorkbench(
   const outputFile = path.join(tmpDir, 'output.json')
 
   try {
-    // Create temp directory
+    // Step 1: Create temp directory
     await fs.mkdir(tmpDir, { recursive: true })
 
-    // Write context to file
+    // Step 2: Write context to file
     await fs.writeFile(dataFile, JSON.stringify(context))
 
-    // Create Python script with helper functions
+    // Step 3: Create Python script
     const pythonCode = `
 import json
 import sys
 
-# Load context
+# Load context passed from TypeScript
 with open('${dataFile}', 'r') as f:
     context = json.load(f)
 
-# Mock invoke_llm for now (user can override)
+# Helper function for LLM calls (stub - implement based on your LLM)
 def invoke_llm(query, reasoning_effort='low'):
-    # For now, just return empty - will integrate with actual LLM
+    # TODO: Integrate with your LLM provider
     return f"LLM would analyze: {query[:100]}...", ""
 
 # Execute user code
@@ -237,14 +255,14 @@ try:
 except Exception as e:
     output = {'error': str(e), 'type': type(e).__name__}
 
-# Write output
+# Write output back to TypeScript
 with open('${outputFile}', 'w') as f:
-    json.dump({'output': output, 'context': context}, f)
+    json.dump({'output': output}, f)
 `
 
     await fs.writeFile(codeFile, pythonCode)
 
-    // Execute Python script
+    // Step 4: Execute Python
     try {
       execSync(`python3 ${codeFile}`, {
         timeout: timeoutMs,
@@ -255,14 +273,14 @@ with open('${outputFile}', 'w') as f:
       throw new Error(`Workbench execution failed: ${error.message}`)
     }
 
-    // Read output
+    // Step 5: Read output
     const outputJson = await fs.readFile(outputFile, 'utf-8')
     const result = JSON.parse(outputJson)
 
     return result.output
 
   } finally {
-    // Cleanup
+    // Step 6: Cleanup temp files
     try {
       await fs.rm(tmpDir, { recursive: true, force: true })
     } catch (error) {
@@ -272,13 +290,13 @@ with open('${outputFile}', 'w') as f:
 }
 ```
 
-### Step B: Add Workbench Step Type to Workflow Executor
+### Step B: Add Workbench to Workflow Executor
 ```typescript
-// src/lib/workflow-executor.ts - Add to step execution
+// src/lib/workflow-executor.ts - Add to step execution loop
 
 import { executeWorkbench } from './workbench'
 
-// Inside the step execution loop:
+// Inside step execution:
 if (step.type === 'workbench') {
   console.log(`[STEP ${step.step_number}] Executing workbench: ${step.description}`)
   
@@ -290,19 +308,48 @@ if (step.type === 'workbench') {
     )
   } catch (error) {
     console.error(`Workbench execution failed:`, error)
-    
-    if (step.retry_on_failure) {
-      // Handle retries
-    }
-    
     throw error
   }
 }
 ```
 
+### Step C: Optional - File Upload to S3
+
+**Only implement if you need to persist files:**
+
+```typescript
+// src/lib/workbench.ts - Add file upload support
+
+export async function uploadArtifacts(tmpDir: string): Promise<Record<string, string>> {
+  const files = await fs.readdir(tmpDir)
+  const artifacts: Record<string, string> = {}
+  
+  for (const file of files) {
+    if (file === 'context.json' || file === 'code.py' || file === 'output.json') {
+      continue  // Skip temporary files
+    }
+    
+    const filePath = path.join(tmpDir, file)
+    // TODO: Upload to S3/cloud storage
+    // artifacts[file] = uploadedUrl
+  }
+  
+  return artifacts
+}
+```
+
 ---
 
-## 3️⃣  Add LLM Planning (30 MINS)
+## 3️⃣ Add LLM Planning (30 MINS)
+
+### What Agent Does
+```
+Before: You manually design workflows
+"Send daily report" → You create 5 steps
+
+After: AI designs workflows
+"Send daily report" → Claude generates 5-step workflow → Execute
+```
 
 ### Step A: Create Agent
 ```typescript
@@ -329,7 +376,7 @@ Available Tools/Toolkits:
 - github (GITHUB_CREATE_ISSUE, GITHUB_GET_REPOSITORY, etc)
 - slack (SLACK_SEND_MESSAGE, SLACK_FETCH_MESSAGES, etc)
 - gmail (GMAIL_FETCH_EMAILS, GMAIL_SEND_EMAIL, etc)
-- workbench (for analysis and data processing)
+- workbench (for Python analysis and data processing)
 
 Return ONLY valid JSON without markdown formatting. Structure:
 {
@@ -337,12 +384,7 @@ Return ONLY valid JSON without markdown formatting. Structure:
   "description": "what this workflow does",
   "input_schema": {"type": "object", "properties": {}, "required": []},
   "workflow": [
-    {
-      "step_number": 1,
-      "toolkit": "name",
-      "tool_slug": "TOOL_NAME",
-      "tool_arguments": {}
-    }
+    {"step_number": 1, "toolkit": "github", "tool_slug": "...", ...}
   ]
 }
 `
@@ -391,7 +433,7 @@ app.post('/api/workflows/generate', async (req, res) => {
 
 ---
 
-## 🧪 TESTING YOUR IMPLEMENTATION
+## 🧪 TESTING
 
 ### Test 1: Memory
 ```typescript
@@ -411,9 +453,7 @@ console.log(memory) // { user_timezone: 'Asia/Kolkata', email_count: 42 }
 import { executeWorkbench } from './lib/workbench'
 
 const result = await executeWorkbench(
-  `
-output = 2 + 2
-  `,
+  'output = 2 + 2',
   { params: {}, steps: [], memory: {} }
 )
 console.log(result) // 4
@@ -431,7 +471,7 @@ console.log(workflow)
 
 ---
 
-## 📋 CHECKLIST TO COMPLETE
+## 📋 COMPLETION CHECKLIST
 
 - [ ] Add `workflow_memory` table to Supabase
 - [ ] Create `src/lib/memory.ts` with MemoryManager
@@ -444,6 +484,6 @@ console.log(workflow)
 - [ ] Test memory save/load
 - [ ] Test workbench execution
 - [ ] Test agent workflow generation
-- [ ] Update documentation with examples
+- [ ] Test complete workflow with all 3 phases
 
-Once complete, you'll have a Rube-like engine! 🚀
+Once complete, you'll have a powerful automation engine! 🚀
