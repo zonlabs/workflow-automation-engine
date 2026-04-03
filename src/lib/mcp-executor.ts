@@ -165,8 +165,10 @@ function resolveTemplateString(
   if (exactMatch) {
     const value = resolveExpression(exactMatch[1], params, stepOutputs);
     if (value === undefined) {
-      console.warn(`[mcp-executor] Template variable "${exactMatch[1]}" could not be resolved, using empty string`);
-      return "";
+      throw new NonRetryableExecutionError(
+        `Template variable "${exactMatch[1]}" could not be resolved`,
+        "TEMPLATE_RESOLUTION_FAILED"
+      );
     }
     return value;
   }
@@ -174,8 +176,10 @@ function resolveTemplateString(
   return template.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_match, expression: string) => {
     const value = resolveExpression(expression, params, stepOutputs);
     if (value === undefined) {
-      console.warn(`[mcp-executor] Template variable "${expression}" could not be resolved, using empty string`);
-      return "";
+      throw new NonRetryableExecutionError(
+        `Template variable "${expression}" could not be resolved`,
+        "TEMPLATE_RESOLUTION_FAILED"
+      );
     }
     if (typeof value === "string") {
       return value;
