@@ -114,16 +114,32 @@ function setupStorageMock(sessions = [{ sessionId: "sess-xyz" }]) {
 let mockUpdateEq: ReturnType<typeof vi.fn>;
 let mockOrderFn: ReturnType<typeof vi.fn>;
 
-function setupSupabaseMock(steps: unknown[] = []) {
+/** Matches executeWorkflowJob: execution_logs updates, workflows definition fetch, workflow_steps list. */
+function setupSupabaseMock(
+  steps: unknown[] = [],
+  workflowRow: { script_code?: string | null; script_runtime?: unknown } = {}
+) {
   mockUpdateEq = vi.fn().mockResolvedValue({ error: null });
   const mockUpdate = vi.fn().mockReturnValue({ eq: mockUpdateEq });
 
   mockOrderFn = vi.fn().mockResolvedValue({ data: steps, error: null });
-  const mockEq = vi.fn().mockReturnValue({ order: mockOrderFn });
-  const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+  const mockEqSteps = vi.fn().mockReturnValue({ order: mockOrderFn });
+  const mockSelectSteps = vi.fn().mockReturnValue({ eq: mockEqSteps });
+
+  const wfData = {
+    id: "wf-001",
+    script_code: null as string | null,
+    script_runtime: null,
+    ...workflowRow,
+  };
+  const mockWorkflowSingle = vi.fn().mockResolvedValue({ data: wfData, error: null });
+  const mockWorkflowEq = vi.fn().mockReturnValue({ single: mockWorkflowSingle });
+  const mockSelectWorkflows = vi.fn().mockReturnValue({ eq: mockWorkflowEq });
 
   vi.mocked(supabase.from).mockImplementation((table: string) => {
-    if (table === "workflow_steps") return { select: mockSelect } as any;
+    if (table === "workflow_steps") return { select: mockSelectSteps } as any;
+    if (table === "workflows") return { select: mockSelectWorkflows } as any;
+    if (table === "execution_logs") return { update: mockUpdate } as any;
     return { update: mockUpdate } as any;
   });
 }

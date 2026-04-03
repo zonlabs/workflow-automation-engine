@@ -3,13 +3,15 @@
 -- ============================================
 CREATE TABLE IF NOT EXISTS workflows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   
   input_schema JSONB NOT NULL DEFAULT '{}',
   output_schema JSONB NOT NULL DEFAULT '{}',
   workflow JSONB NOT NULL DEFAULT '[]',
+  script_code TEXT,
+  script_runtime JSONB DEFAULT '{}',
   defaults_for_required_parameters JSONB DEFAULT '{}',
   
   toolkit_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
@@ -18,7 +20,7 @@ CREATE TABLE IF NOT EXISTS workflows (
   is_active BOOLEAN DEFAULT TRUE,
   is_public BOOLEAN DEFAULT FALSE,
   
-  CONSTRAINT workflow_owner CHECK (user_id IS NOT NULL)
+  CONSTRAINT workflow_owner CHECK (length(trim(user_id)) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflows_user_id ON workflows(user_id);
@@ -30,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_workflows_is_active ON workflows(is_active);
 CREATE TABLE IF NOT EXISTS scheduled_workflows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
   
   name TEXT NOT NULL,
   cron_expression TEXT NOT NULL,
@@ -51,7 +53,7 @@ CREATE TABLE IF NOT EXISTS scheduled_workflows (
   updated_at TIMESTAMP DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id),
   
-  CONSTRAINT schedule_owner CHECK (user_id IS NOT NULL)
+  CONSTRAINT schedule_owner CHECK (length(trim(user_id)) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_workflows_user_id ON scheduled_workflows(user_id);
@@ -66,7 +68,7 @@ CREATE TABLE IF NOT EXISTS execution_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   scheduled_workflow_id UUID NOT NULL REFERENCES scheduled_workflows(id) ON DELETE CASCADE,
   workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
   
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'success', 'failed', 'timeout', 'cancelled')),
   
@@ -87,7 +89,7 @@ CREATE TABLE IF NOT EXISTS execution_logs (
   
   created_at TIMESTAMP DEFAULT NOW(),
   
-  CONSTRAINT execution_owner CHECK (user_id IS NOT NULL)
+  CONSTRAINT execution_owner CHECK (length(trim(user_id)) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_execution_logs_scheduled_workflow ON execution_logs(scheduled_workflow_id);
@@ -145,7 +147,6 @@ CREATE TABLE IF NOT EXISTS mcp_credentials (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   
-  CONSTRAINT credential_owner CHECK (user_id IS NOT NULL),
   UNIQUE(user_id, toolkit, credential_name)
 );
 
@@ -177,7 +178,7 @@ CREATE INDEX IF NOT EXISTS idx_webhook_triggers_webhook_url ON webhook_triggers(
 -- ============================================
 CREATE TABLE IF NOT EXISTS audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id),
+  user_id UUID REFERENCES auth.users(id),
   action TEXT NOT NULL,
   resource_type TEXT,
   resource_id UUID,
@@ -219,3 +220,71 @@ BEGIN
   WHERE id = schedule_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ============================================
+-- WORKFLOW USER API KEYS (engine + MCP Bearer)
+-- ============================================
+CREATE TABLE IF NOT EXISTS workflow_user_api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  owner_email TEXT NOT NULL,
+  key_hash TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,
+  label TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_user_api_keys_hash_active
+  ON workflow_user_api_keys(key_hash)
+  WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_workflow_user_api_keys_user_id ON workflow_user_api_keys(user_id);
+
+ALTER TABLE workflow_user_api_keys ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "workflow_api_keys_select_own" ON workflow_user_api_keys;
+DROP POLICY IF EXISTS "workflow_api_keys_insert_own" ON workflow_user_api_keys;
+DROP POLICY IF EXISTS "workflow_api_keys_update_own" ON workflow_user_api_keys;
+
+CREATE POLICY "workflow_api_keys_select_own"
+  ON workflow_user_api_keys FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "workflow_api_keys_insert_own"
+  ON workflow_user_api_keys FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "workflow_api_keys_update_own"
+  ON workflow_user_api_keys FOR UPDATE
+  USING (auth.uid() = user_id);
+
+-- Add owner_email when the table already existed without it (fixes PostgREST "schema cache" errors)
+ALTER TABLE workflow_user_api_keys ADD COLUMN IF NOT EXISTS owner_email TEXT;
+
+UPDATE workflow_user_api_keys AS k
+SET owner_email = lower(trim(u.email::text))
+FROM auth.users AS u
+WHERE k.user_id = u.id
+  AND (k.owner_email IS NULL OR btrim(k.owner_email) = '');
+
+DELETE FROM workflow_user_api_keys
+WHERE owner_email IS NULL OR btrim(owner_email) = '';
+
+ALTER TABLE workflow_user_api_keys ALTER COLUMN owner_email SET NOT NULL;
+
+-- Legacy cleanup (safe if columns were never created)
+DROP INDEX IF EXISTS idx_mcp_credentials_external_user_id;
+DROP INDEX IF EXISTS idx_audit_logs_external_user_id;
+ALTER TABLE mcp_credentials DROP COLUMN IF EXISTS external_user_id;
+ALTER TABLE audit_logs DROP COLUMN IF EXISTS external_user_id;
+-- If you migrated an old DB and lost uniqueness on credentials, add:
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_credentials_user_toolkit_name ON mcp_credentials(user_id, toolkit, credential_name);
+
+DROP INDEX IF EXISTS idx_workflows_runner_user_id;
+DROP INDEX IF EXISTS idx_scheduled_workflows_runner_user_id;
+DROP INDEX IF EXISTS idx_execution_logs_runner_user_id;
+ALTER TABLE workflows DROP COLUMN IF EXISTS runner_user_id;
+ALTER TABLE scheduled_workflows DROP COLUMN IF EXISTS runner_user_id;
+ALTER TABLE execution_logs DROP COLUMN IF EXISTS runner_user_id;

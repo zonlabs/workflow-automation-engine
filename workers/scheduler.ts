@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Worker } from "bullmq";
 import { getSharedRedisConnection } from "../src/lib/redis";
 import { schedulerQueue, SCHEDULER_QUEUE_NAME, enqueueWorkflowExecution } from "../src/lib/queue";
@@ -72,11 +73,11 @@ async function checkAndEnqueueSchedules() {
       continue;
     }
 
-    const userId = schedule.user_id as string;
-    const sessionId = await resolveSessionId(userId);
+    const identityUserId = String(schedule.user_id ?? "");
+    const sessionId = await resolveSessionId(identityUserId);
     if (!sessionId) {
       console.warn(
-        `[scheduler] No active MCP session for user ${userId}, skipping schedule ${schedule.id}`
+        `[scheduler] No active MCP session for identity ${identityUserId}, skipping schedule ${schedule.id}`
       );
       continue;
     }
@@ -86,7 +87,7 @@ async function checkAndEnqueueSchedules() {
       .insert({
         workflow_id: schedule.workflow_id,
         scheduled_workflow_id: schedule.id,
-        user_id: userId,
+        user_id: identityUserId,
         status: "pending",
         input_data: (schedule.params as Record<string, unknown>) ?? {},
         triggered_by: "scheduler",
@@ -108,7 +109,7 @@ async function checkAndEnqueueSchedules() {
         workflowId: schedule.workflow_id as string,
         scheduledWorkflowId: schedule.id as string,
         executionLogId: executionLog.id as string,
-        userId,
+        userId: identityUserId,
         sessionId,
         triggeredBy: "scheduler",
         params: (schedule.params as Record<string, unknown>) ?? {},

@@ -4,6 +4,7 @@ import { WorkflowJobData } from "./queue";
 import { executeAIAgentStep } from "./ai/ai-agent";
 import { evaluateAICondition } from "./ai/condition-evaluator";
 import type { AIStepConfig, AIConditionConfig, AIAgentResult } from "./ai/types";
+import { runScriptWorkflow } from "./script-runner";
 
 type JsonObject = Record<string, unknown>;
 
@@ -188,6 +189,12 @@ function resolveTemplateString(
   });
 }
 
+interface WorkflowRow {
+  id: string;
+  script_code?: string | null;
+  script_runtime?: JsonObject | null;
+}
+
 function resolveExpression(
   rawExpression: string,
   params: Record<string, unknown>,
@@ -346,6 +353,72 @@ async function fetchStepsForWorkflow(workflowId: string): Promise<WorkflowStepRo
   }
 
   return (steps ?? []) as WorkflowStepRow[];
+}
+
+async function fetchWorkflowDefinition(workflowId: string): Promise<WorkflowRow> {
+  const { data, error } = await supabase
+    .from("workflows")
+    .select("id, script_code, script_runtime")
+    .eq("id", workflowId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to load workflow definition: ${error?.message ?? "unknown error"}`);
+  }
+
+  return data as WorkflowRow;
+}
+
+async function executeScriptWorkflow(
+  jobData: WorkflowJobData,
+  workflow: WorkflowRow,
+  context: WorkflowExecutionResult["output"],
+  startedAt: number
+): Promise<WorkflowExecutionResult> {
+  const scriptCode = workflow.script_code?.trim();
+  if (!scriptCode) {
+    throw new NonRetryableExecutionError(
+      "Script workflow is missing script_code",
+      "SCRIPT_CODE_MISSING"
+    );
+  }
+
+  const scriptStartedAt = Date.now();
+  const result = await runScriptWorkflow({
+    workflowId: jobData.workflowId,
+    executionLogId: jobData.executionLogId,
+    userId: jobData.userId,
+    sessionId: jobData.sessionId,
+    triggeredBy: jobData.triggeredBy,
+    scriptCode,
+    scriptRuntime: workflow.script_runtime ?? undefined,
+    params: context.params,
+  });
+
+  context.steps[1] = {
+    stepId: "script",
+    stepNumber: 1,
+    stepName: "Workflow Script",
+    toolSlug: "script",
+    output: result.output ?? result,
+    durationMs: Date.now() - scriptStartedAt,
+  };
+
+  await updateExecutionLog(jobData.executionLogId, {
+    status: "success",
+    output_data: context,
+    completed_at: nowIso(),
+    duration_ms: Date.now() - startedAt,
+    error_message: null,
+    error_code: null,
+    error_stack: null,
+  });
+
+  return {
+    status: "success",
+    retryable: false,
+    output: context,
+  };
 }
 
 async function assertSessionExists(identity: string, sessionId: string): Promise<void> {
@@ -513,6 +586,13 @@ export async function executeWorkflowJob(jobData: WorkflowJobData): Promise<Work
     });
 
     await assertSessionExists(jobData.userId, jobData.sessionId);
+
+    const workflow = await fetchWorkflowDefinition(jobData.workflowId);
+    const hasScript = typeof workflow.script_code === "string" && workflow.script_code.trim().length > 0;
+
+    if (hasScript) {
+      return await executeScriptWorkflow(jobData, workflow, context, startedAt);
+    }
 
     const steps = await fetchStepsForWorkflow(jobData.workflowId);
     if (!steps.length) {
