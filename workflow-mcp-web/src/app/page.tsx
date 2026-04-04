@@ -6,8 +6,11 @@ export default function Home() {
         Streamable HTTP MCP endpoint: <code>/api/mcp</code>
       </p>
       <p>
-        Script helper (Vercel Sandbox): <code>/api/script-helper/tool</code>,{" "}
-        <code>/api/script-helper/llm</code>
+        Script helper (callbacks from{" "}
+        <a href="https://vercel.com/docs/vercel-sandbox" rel="noreferrer">
+          Vercel Sandbox
+        </a>
+        ): <code>/api/script-helper/tool</code>, <code>/api/script-helper/llm</code>
       </p>
       <p style={{ color: "#555" }}>
         Set env vars from <code>.env.example</code>, enable Fluid compute on the Vercel project, and

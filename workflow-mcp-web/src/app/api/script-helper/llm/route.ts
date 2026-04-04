@@ -1,31 +1,13 @@
 import { generateText } from "ai";
 import { resolveModel } from "@engine/src/lib/ai/provider-registry";
+import { verifyScriptHelperAuth } from "@/lib/verify-script-helper-auth";
 
 export const runtime = "nodejs";
-
-function requireHelperAuth(req: Request): Response | null {
-  const helperToken = process.env.WORKFLOW_SCRIPT_HELPER_TOKEN;
-  if (!helperToken) return null;
-  const auth = req.headers.get("authorization");
-  if (!auth) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  const match = auth.match(/^Bearer\s+(.+)$/i);
-  if (!match || match[1] !== helperToken) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  return null;
-}
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
-  const denied = requireHelperAuth(req);
-  if (denied) return denied;
+  const authError = verifyScriptHelperAuth(req);
+  if (authError) return authError;
 
   try {
     const body = (await req.json()) as Record<string, unknown>;

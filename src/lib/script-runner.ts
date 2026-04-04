@@ -160,7 +160,7 @@ async function runViaVercelSandbox(payload: ScriptRunPayload): Promise<ScriptRun
   const language = detectLanguage(payload.scriptCode, payload.scriptRuntime);
   const runtime =
     language === "node"
-      ? process.env.VERCEL_SANDBOX_RUNTIME_NODE ?? "nodejs20"
+      ? process.env.VERCEL_SANDBOX_RUNTIME_NODE ?? "node24"
       : process.env.VERCEL_SANDBOX_RUNTIME_PYTHON ?? process.env.VERCEL_SANDBOX_RUNTIME ?? "python3.13";
   const timeout = Number(process.env.VERCEL_SANDBOX_TIMEOUT_MS ?? "240000");
   const helperUrl = process.env.WORKFLOW_SCRIPT_HELPER_URL;

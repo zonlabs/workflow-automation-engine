@@ -39,8 +39,8 @@ You can expose **`POST /api/workflows/run`** (or similar) that only enqueues, an
 | `GET/POST /oauth/*` | OAuth 2.x for MCP clients (PKCE + dynamic registration) |
 | `GET /.well-known/oauth-protected-resource` | RFC 9728 metadata |
 | `GET /.well-known/oauth-authorization-server` | Authorization server metadata |
-| `POST /api/script-helper/tool` | Vercel Sandbox → MCP tool calls |
-| `POST /api/script-helper/llm` | Vercel Sandbox → LLM |
+| `POST /api/script-helper/tool` | Callback from [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) user code → MCP `run_tool` |
+| `POST /api/script-helper/llm` | Callback from Sandbox → `invoke_llm` (AI keys on this deployment) |
 
 ## Cursor
 
@@ -55,6 +55,21 @@ You can expose **`POST /api/workflows/run`** (or similar) that only enqueues, an
 ```
 
 Authenticate with a Supabase JWT or `wfmcp_…` API key (same as the Express `mcp-server`).
+
+## Vercel Sandbox (script workflows)
+
+Script steps do **not** run inside this Next app. The **BullMQ worker** (`npm run worker` in the parent engine) executes them by creating a [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) (`WORKFLOW_SCRIPT_RUNNER_MODE=vercel`). Inside the sandbox, workflow JavaScript/Python calls **`run_tool`** / **`invoke_llm`**, which POST to **this** deployment:
+
+- `WORKFLOW_SCRIPT_HELPER_URL` = `https://<this-project>.vercel.app/api`
+- `WORKFLOW_SCRIPT_HELPER_TOKEN` = long random secret, **same** in Vercel (this app) and on the worker
+
+On Vercel, **`WORKFLOW_SCRIPT_HELPER_TOKEN` is required** so `/api/script-helper/*` are not anonymously callable. Locally (`next dev`), the token is optional for easier testing.
+
+Sandbox API authentication (for the **worker** creating sandboxes): see [Vercel Sandbox — Authentication](https://vercel.com/docs/vercel-sandbox/concepts/authentication) ([OIDC on Vercel](https://vercel.com/docs/vercel-sandbox/concepts/authentication#vercel-oidc-token-recommended), or a [personal access token](https://vercel.com/docs/vercel-sandbox/concepts/authentication#access-tokens) for non-Vercel workers / CI).
+
+Optional worker env: `VERCEL_SANDBOX_RUNTIME_NODE` (default `node24`), `VERCEL_SANDBOX_RUNTIME_PYTHON` (default `python3.13`), `VERCEL_SANDBOX_TIMEOUT_MS` (default `240000`). Runtimes: [system specifications](https://vercel.com/docs/vercel-sandbox/system-specifications).
+
+You do **not** set `WORKFLOW_SCRIPT_RUNNER_URL` when using Sandbox mode.
 
 ## Notes
 
