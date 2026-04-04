@@ -18,6 +18,7 @@
         "name": "next"
       }
     ],
+    // @engine files live under ../ ; TS resolves their bare imports from ../node_modules (empty on Vercel). Pin to this app's node_modules.
     "paths": {
       "@/*": ["./src/*"],
       "@engine/*": ["../*"],
@@ -26,7 +27,11 @@
       "bullmq": ["./node_modules/bullmq"],
       "bullmq/*": ["./node_modules/bullmq/*"],
       "ioredis": ["./node_modules/ioredis"],
-      "ioredis/*": ["./node_modules/ioredis/*"]
+      "ioredis/*": ["./node_modules/ioredis/*"],
+      "@modelcontextprotocol/sdk": ["./node_modules/@modelcontextprotocol/sdk"],
+      "@modelcontextprotocol/sdk/*": [
+        "./node_modules/@modelcontextprotocol/sdk/dist/esm/*"
+      ]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
