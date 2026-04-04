@@ -25,7 +25,11 @@ async function verifyToken(
 
 const mcp = createMcpHandler(
   async (server) => {
-    registerWorkflowMcpWebTools(server);
+    // `mcp-handler` and `@engine/mcp-server` can resolve different physical copies of
+    // `@modelcontextprotocol/sdk` (e.g. app `node_modules` vs parent). Types differ; runtime is the same API.
+    registerWorkflowMcpWebTools(
+      server as unknown as Parameters<typeof registerWorkflowMcpWebTools>[0]
+    );
   },
   {
     serverInfo: {

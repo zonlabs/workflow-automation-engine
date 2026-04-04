@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 // Parent `@engine` modules validate Supabase env at import time. CI / local `next build`
 // without .env still needs these placeholders; Vercel/runtime must set real values.
@@ -12,6 +13,17 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
 const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
+  },
+  // Code under `../` (e.g. `src/lib/ai/provider-registry.ts`) resolves `node_modules` from the
+  // engine tree first. On Vercel only `workflow-mcp-web/node_modules` is installed — prefer it.
+  webpack: (config) => {
+    const localModules = path.join(process.cwd(), "node_modules");
+    const existing = config.resolve.modules;
+    config.resolve.modules = [
+      localModules,
+      ...(Array.isArray(existing) ? existing : ["node_modules"]),
+    ];
+    return config;
   },
 };
 
