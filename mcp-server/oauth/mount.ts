@@ -5,15 +5,9 @@ import { sealAuthCode, openAuthCode } from "./auth-code";
 import { verifyPkceChallenge } from "./pkce";
 import { getClient, registerClient } from "./registry";
 import { isAllowedRedirectUri } from "./redirect-uri";
+import { buildOauthAuthorizeHtml } from "./authorize-page";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/"/g, "&quot;");
-}
 
 function normalizeClientName(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
@@ -26,40 +20,6 @@ function normalizeLogoUri(raw: unknown): string | undefined {
   const u = raw.trim();
   if (!u) return undefined;
   return u;
-}
-
-function displayClientName(client: { clientName?: string }): string {
-  const n = client.clientName?.trim();
-  return n && n.length > 0 ? n : "Connected application";
-}
-
-function initialGlyph(displayName: string): string {
-  const t = displayName.trim();
-  if (!t) return "?";
-  const ch = [...t][0];
-  return ch && ch.length > 0 ? ch : "?";
-}
-
-function buildAppLogoMarkup(client: { logoUri?: string }, displayName: string): string {
-  const initial = esc(initialGlyph(displayName));
-  if (client.logoUri) {
-    const src = esc(client.logoUri);
-    return `<div class="app-logo-box" aria-hidden="true">
-      <img class="app-logo-img" src="${src}" alt="" referrerpolicy="no-referrer" decoding="async" onerror="this.onerror=null;this.remove();this.parentElement.querySelector('.app-logo-fallback').classList.add('visible');" />
-      <span class="app-logo-fallback">${initial}</span>
-    </div>`;
-  }
-  return `<div class="app-logo-box" aria-hidden="true"><span class="app-logo-fallback visible">${initial}</span></div>`;
-}
-
-function formatRedirectDisplay(uri: string): string {
-  try {
-    const u = new URL(uri);
-    const path = u.pathname === "/" ? "" : u.pathname;
-    return `${u.origin}${path}`;
-  } catch {
-    return uri;
-  }
 }
 
 function isSafeRedirectUrl(uri: string): boolean {
@@ -109,7 +69,7 @@ export function mountWorkflowOAuth(app: Express): void {
     });
   });
 
-  app.post("/oauth/register", (req: Request, res: Response) => {
+  app.post("/oauth/register", async (req: Request, res: Response) => {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
     for (const uri of redirectUris) {
@@ -138,7 +98,7 @@ export function mountWorkflowOAuth(app: Express): void {
       );
       return;
     }
-    const rec = registerClient({
+    const rec = await registerClient({
       redirectUris,
       ...(clientName ? { clientName } : {}),
       ...(logoRaw ? { logoUri: logoRaw } : {}),
@@ -158,7 +118,7 @@ export function mountWorkflowOAuth(app: Express): void {
     });
   });
 
-  app.get("/oauth/authorize", (req: Request, res: Response) => {
+  app.get("/oauth/authorize", async (req: Request, res: Response) => {
     const q = req.query;
     const response_type = typeof q.response_type === "string" ? q.response_type : null;
     const client_id = typeof q.client_id === "string" ? q.client_id : null;
@@ -178,7 +138,7 @@ export function mountWorkflowOAuth(app: Express): void {
       return;
     }
 
-    const client = getClient(client_id);
+    const client = await getClient(client_id);
     if (!client) {
       res
         .status(400)
@@ -192,253 +152,14 @@ export function mountWorkflowOAuth(app: Express): void {
       return;
     }
 
-    const action = `${issuer}/oauth/authorize`;
-    const appLabel = displayClientName(client);
-    const logoBlock = buildAppLogoMarkup(client, appLabel);
-    const redirectLabel = formatRedirectDisplay(redirect_uri);
-    const checkSvg = `<svg class="perm-check" width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4.5 9.5L8 13l6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light" />
-  <title>Authorize API access · Workflow Automation Engine · ${esc(appLabel)}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: #e8e8e8;
-      color: #171717;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
-      -webkit-font-smoothing: antialiased;
-    }
-    .shell { width: 100%; max-width: 28rem; }
-    .card {
-      background: #ffffff;
-      border: 1px solid #d4d4d4;
-      border-radius: 10px;
-      padding: 1.75rem 1.75rem 1.5rem;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-    }
-    .title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin: 0 0 0.35rem;
-      letter-spacing: -0.02em;
-      color: #0a0a0a;
-      line-height: 1.25;
-    }
-    .resource-name {
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #404040;
-      margin: 0 0 1.35rem;
-      letter-spacing: -0.01em;
-    }
-    .app-block {
-      display: flex;
-      gap: 1rem;
-      align-items: flex-start;
-      margin-bottom: 1.25rem;
-    }
-    .app-logo-box {
-      width: 48px;
-      height: 48px;
-      border-radius: 8px;
-      background: #fafafa;
-      border: 1px solid #e5e5e5;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      overflow: hidden;
-      position: relative;
-    }
-    .app-logo-img {
-      position: absolute;
-      inset: 0;
-      z-index: 2;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .app-logo-fallback {
-      font-size: 1.125rem;
-      font-weight: 700;
-      color: #171717;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: 100%;
-      position: relative;
-      z-index: 1;
-    }
-    .app-logo-fallback.visible { display: flex; }
-    .app-copy { min-width: 0; }
-    .lead {
-      margin: 0 0 0.35rem;
-      font-size: 0.9375rem;
-      line-height: 1.45;
-      color: #171717;
-    }
-    .lead strong { font-weight: 600; }
-    .redirect {
-      margin: 0;
-      font-size: 0.8125rem;
-      color: #737373;
-      line-height: 1.4;
-    }
-    .redirect code {
-      font-size: 0.78rem;
-      font-family: ui-monospace, monospace;
-      color: #404040;
-      word-break: break-all;
-    }
-    .perms {
-      list-style: none;
-      margin: 0 0 1.25rem;
-      padding: 0;
-    }
-    .perms li {
-      display: flex;
-      gap: 0.65rem;
-      align-items: flex-start;
-      font-size: 0.875rem;
-      line-height: 1.45;
-      color: #262626;
-      margin-bottom: 0.65rem;
-    }
-    .perms li:last-child { margin-bottom: 0; }
-    .perm-check {
-      flex-shrink: 0;
-      margin-top: 2px;
-      color: #0a0a0a;
-    }
-    .hint {
-      font-size: 0.8125rem;
-      line-height: 1.5;
-      color: #525252;
-      margin: 0 0 1rem;
-      padding: 0.75rem 0.85rem;
-      background: #f5f5f5;
-      border: 1px solid #e5e5e5;
-      border-radius: 8px;
-    }
-    .hint code { font-size: 0.75rem; }
-    label {
-      display: block;
-      font-size: 0.8125rem;
-      font-weight: 600;
-      margin-bottom: 0.35rem;
-      color: #0a0a0a;
-    }
-    textarea {
-      width: 100%;
-      min-height: 5.5rem;
-      padding: 0.65rem 0.75rem;
-      font-family: ui-monospace, "Cascadia Code", monospace;
-      font-size: 0.78rem;
-      line-height: 1.45;
-      border-radius: 8px;
-      border: 1px solid #d4d4d4;
-      background: #ffffff;
-      color: #171717;
-      resize: vertical;
-      transition: border-color 0.12s, box-shadow 0.12s;
-    }
-    textarea:focus {
-      outline: none;
-      border-color: #0a0a0a;
-      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
-    }
-    textarea::placeholder { color: #a3a3a3; }
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      gap: 0.65rem;
-      margin-top: 1.25rem;
-      flex-wrap: wrap;
-    }
-    .btn-cancel {
-      font-family: inherit;
-      font-size: 0.875rem;
-      font-weight: 500;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      border: 1px solid #d4d4d4;
-      background: #ffffff;
-      color: #171717;
-      cursor: pointer;
-      transition: background 0.12s, border-color 0.12s;
-    }
-    .btn-cancel:hover { background: #fafafa; border-color: #a3a3a3; }
-    .btn-submit {
-      font-family: inherit;
-      font-size: 0.875rem;
-      font-weight: 600;
-      padding: 0.5rem 1.15rem;
-      border-radius: 8px;
-      border: 1px solid #0a0a0a;
-      background: #0a0a0a;
-      color: #ffffff;
-      cursor: pointer;
-      transition: background 0.12s, border-color 0.12s;
-    }
-    .btn-submit:hover { background: #262626; border-color: #262626; }
-    .fineprint {
-      margin-top: 1rem;
-      font-size: 0.6875rem;
-      color: #737373;
-      text-align: center;
-      line-height: 1.45;
-    }
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <div class="card">
-      <h1 class="title">Authorize API access</h1>
-      <p class="resource-name">Workflow Automation Engine</p>
-      <div class="app-block">
-        ${logoBlock}
-        <div class="app-copy">
-          <p class="lead"><strong>${esc(appLabel)}</strong> wants access to the following:</p>
-          <p class="redirect">Redirecting to <code>${esc(redirectLabel)}</code></p>
-        </div>
-      </div>
-      <ul class="perms">
-        <li>${checkSvg}<span>Full access to your workflows, schedules, and execution history for this account</span></li>
-        <li>${checkSvg}<span>Allow the application to run workflows using credentials you provide below</span></li>
-      </ul>
-      <p class="hint">Paste a <strong>workflow API key</strong> (<code>wfmcp_…</code>) from your app settings, or your <strong>signed-in session access token</strong> (JWT). That same value is returned as the OAuth access token for MCP.</p>
-      <form method="post" action="${esc(action)}">
-        <input type="hidden" name="response_type" value="code" />
-        <input type="hidden" name="client_id" value="${esc(client_id)}" />
-        <input type="hidden" name="redirect_uri" value="${esc(redirect_uri)}" />
-        <input type="hidden" name="state" value="${esc(state ?? "")}" />
-        <input type="hidden" name="code_challenge" value="${esc(code_challenge)}" />
-        <input type="hidden" name="code_challenge_method" value="${esc(code_challenge_method)}" />
-        <input type="hidden" name="scope" value="${esc(scope)}" />
-        <label for="user_access_token">API key or access token</label>
-        <textarea id="user_access_token" name="user_access_token" required autocomplete="off" spellcheck="false" placeholder="wfmcp_… or eyJhbGciOiJIUzI1NiIs…"></textarea>
-        <div class="actions">
-          <button type="button" class="btn-cancel" onclick="if (history.length > 1) history.back(); else window.close();">Cancel</button>
-          <button type="submit" class="btn-submit">Authorize</button>
-        </div>
-      </form>
-    </div>
-    <p class="fineprint">You can revoke workflow API keys anytime in your app settings.</p>
-  </div>
-</body>
-</html>`;
+    const html = buildOauthAuthorizeHtml(issuer, client, {
+      client_id,
+      redirect_uri,
+      state,
+      code_challenge,
+      code_challenge_method,
+      scope,
+    });
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
@@ -460,7 +181,7 @@ export function mountWorkflowOAuth(app: Express): void {
       return;
     }
 
-    const client = getClient(client_id);
+    const client = await getClient(client_id);
     if (!client || !client.redirectUris.includes(redirect_uri)) {
       errorRedirect(res, redirect_uri || null, "invalid_request", state || null);
       return;
