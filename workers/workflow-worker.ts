@@ -4,6 +4,7 @@ import { getSharedRedisConnection } from "../src/lib/redis";
 import { WORKFLOW_QUEUE_NAME, WorkflowJobData } from "../src/lib/queue";
 
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? "5");
+const jobTimeoutMs = Number(process.env.WORKER_JOB_TIMEOUT ?? "600000");
 
 export const workflowWorker = new Worker<WorkflowJobData>(
   WORKFLOW_QUEUE_NAME,
@@ -17,6 +18,7 @@ export const workflowWorker = new Worker<WorkflowJobData>(
   {
     connection: getSharedRedisConnection(),
     concurrency: Number.isFinite(concurrency) ? concurrency : 5,
+    lockDuration: Number.isFinite(jobTimeoutMs) ? jobTimeoutMs : 600000,
   }
 );
 
