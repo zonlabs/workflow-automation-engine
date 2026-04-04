@@ -20,6 +20,12 @@ vi.mock("@ai-sdk/google", () => ({
   })),
 }));
 
+vi.mock("@ai-sdk/deepseek", () => ({
+  createDeepSeek: vi.fn(() => ({
+    languageModel: vi.fn((id: string) => ({ provider: "deepseek", id })),
+  })),
+}));
+
 // We use resetModules + dynamic import per test so the module-level
 // `factories` Map is fresh and env-var changes are picked up cleanly.
 describe("provider-registry – resolveModel", () => {
@@ -31,6 +37,7 @@ describe("provider-registry – resolveModel", () => {
     process.env.OPENAI_API_KEY = "sk-test-openai";
     process.env.ANTHROPIC_API_KEY = "sk-ant-test";
     process.env.GOOGLE_AI_API_KEY = "test-google-key";
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
     process.env.AI_DEFAULT_PROVIDER = "openai";
     process.env.AI_DEFAULT_MODEL = "gpt-4o";
   });
@@ -67,6 +74,13 @@ describe("provider-registry – resolveModel", () => {
     expect(result.modelId).toBe("gemini-2.0-flash");
   });
 
+  it("parses 'deepseek/deepseek-chat'", async () => {
+    const { resolveModel } = await import("../../../src/lib/ai/provider-registry");
+    const result = resolveModel("deepseek/deepseek-chat");
+    expect(result.providerName).toBe("deepseek");
+    expect(result.modelId).toBe("deepseek-chat");
+  });
+
   it("handles a slug with multiple slashes – splits at first slash only", async () => {
     const { resolveModel } = await import("../../../src/lib/ai/provider-registry");
     // e.g. openai/gpt-4/custom → provider=openai, model=gpt-4/custom
@@ -93,6 +107,18 @@ describe("provider-registry – resolveModel", () => {
     expect(result.modelId).toBe("gpt-4o");
   });
 
+  it("uses built-in default deepseek/deepseek-chat when AI_DEFAULT_* are unset", async () => {
+    vi.resetModules();
+    process.env.OPENAI_API_KEY = "sk-test-openai";
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    delete process.env.AI_DEFAULT_PROVIDER;
+    delete process.env.AI_DEFAULT_MODEL;
+    const { resolveModel } = await import("../../../src/lib/ai/provider-registry");
+    const result = resolveModel("");
+    expect(result.providerName).toBe("deepseek");
+    expect(result.modelId).toBe("deepseek-chat");
+  });
+
   // ── missing API keys ──────────────────────────────────────────────────────
 
   it("throws when OPENAI_API_KEY is missing", async () => {
@@ -115,6 +141,12 @@ describe("provider-registry – resolveModel", () => {
     expect(() => resolveModel("google/gemini-2.0-flash")).toThrow(
       "GOOGLE_AI_API_KEY"
     );
+  });
+
+  it("throws when DEEPSEEK_API_KEY is missing", async () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    const { resolveModel } = await import("../../../src/lib/ai/provider-registry");
+    expect(() => resolveModel("deepseek/deepseek-chat")).toThrow("DEEPSEEK_API_KEY");
   });
 
   it("throws for an unknown provider name", async () => {

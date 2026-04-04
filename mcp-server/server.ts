@@ -4,6 +4,7 @@ import { supabase } from "../src/lib/supabase";
 import { enqueueWorkflowExecution } from "../src/lib/queue";
 import { storage } from "@mcp-ts/sdk/server";
 import { getRequestContext } from "./request-context";
+import { ensureManualSchedule } from "../src/lib/manual-schedule";
 
 type JsonObject = Record<string, unknown>;
 
@@ -130,7 +131,9 @@ export function createMcpServer(): McpServer {
     "workflow_get",
     {
       title: "Get Workflow",
-      description: "Fetch a workflow with steps and schedules.",
+      description:
+        "Fetch a workflow including script_code, schemas, workflow_steps (multi-tool DAG), and scheduled_workflows. " +
+        "Script workflows: see workflow_upsert_script for the supported JavaScript/Python entry-point API.",
       inputSchema: {
         user_id: z
           .string()
@@ -172,7 +175,17 @@ export function createMcpServer(): McpServer {
     "workflow_upsert_script",
     {
       title: "Create or Update Script Workflow",
-      description: "Create or update a script-based workflow with schema and defaults.",
+      description:
+        "Create or update a workflow executed as a single script (no workflow_steps rows required). " +
+        "JavaScript (default): top-level `async function main(params, context) { ... }` (recommended), or module.exports.main, " +
+        "module.exports.executeWorkflow, module.exports.default, or assign global.output. " +
+        "Inside the script, call MCP tools with run_tool(tool_slug, arguments) or mcp.callTool(tool_slug, arguments). " +
+        "List-shaped tool output is often `{ results: [...] }` or MCP `{ content: [...] }`; iterate with `for (const row of toolResultRows(await run_tool(...)))` (JS) or `tool_result_rows(await run_tool(...))` (Python), or use the correct property (e.g. `.results`). " +
+        "The script-runner resolves tool_slug across all active MCP sessions for that user (remote servers first; workflow_* / schedule_* / execution_log_* prefer the workflow engine). " +
+        "tool_slug must be the real tool name (e.g. gmail_find_email), not a chat-prefixed alias. " +
+        "`context` is metadata only: workflow_id, execution_log_id, user_id, session_id, triggered_by. " +
+        "Python: def main(params, context): or def execute_workflow(...):, or set variable output; use run_tool / mcp.callTool. " +
+        "The engine only fires cron schedules (UTC) or manual workflow_run; it does not receive Gmail push events unless you add that later.",
       inputSchema: {
         user_id: z
           .string()
@@ -252,7 +265,10 @@ export function createMcpServer(): McpServer {
     "workflow_run",
     {
       title: "Run Workflow",
-      description: "Trigger a workflow execution via the engine queue.",
+      description:
+        "Enqueue workflow execution (BullMQ worker). Requires an active MCP session for script workflows that call run_tool. " +
+        "If scheduled_workflow_id is omitted, the latest schedule for this workflow is used; if none exists, an internal disabled manual schedule is created automatically. " +
+        "Script runs require WORKFLOW_SCRIPT_RUNNER_URL (and the script-runner service) unless using Vercel sandbox mode.",
       inputSchema: {
         user_id: z
           .string()
@@ -261,7 +277,10 @@ export function createMcpServer(): McpServer {
         workflow_id: z.string(),
         params: z.record(z.any()).optional(),
         session_id: z.string().optional(),
-        scheduled_workflow_id: z.string().optional(),
+        scheduled_workflow_id: z
+          .string()
+          .optional()
+          .describe("Optional. Must belong to this workflow_id and user; otherwise the call fails."),
       },
     },
     async ({ user_id, workflow_id, params, session_id, scheduled_workflow_id }, _extra) => {
@@ -291,12 +310,32 @@ export function createMcpServer(): McpServer {
         return errorResponse("No active MCP session found");
       }
 
-      let scheduledId = scheduled_workflow_id?.trim();
-      if (!scheduledId) {
+      let scheduledId: string | undefined;
+
+      if (scheduled_workflow_id?.trim()) {
+        const sid = scheduled_workflow_id.trim();
+        const { data: sch, error: schErr } = await supabase
+          .from("scheduled_workflows")
+          .select("id, workflow_id")
+          .eq("id", sid)
+          .eq("user_id", resolvedUserId)
+          .maybeSingle();
+
+        if (schErr || !sch || sch.workflow_id !== workflow_id) {
+          return errorResponse("scheduled_workflow_id not found or does not match workflow_id");
+        }
+        scheduledId = sid;
+      } else {
         scheduledId = await resolveScheduleId(resolvedUserId, workflow_id);
       }
+
       if (!scheduledId) {
-        return errorResponse("No schedule found for workflow");
+        try {
+          scheduledId = await ensureManualSchedule(resolvedUserId, workflow_id);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Could not create manual schedule";
+          return errorResponse(msg);
+        }
       }
 
       const runParams = asJsonObject(params);
@@ -354,7 +393,9 @@ export function createMcpServer(): McpServer {
     "schedule_upsert",
     {
       title: "Create or Update Schedule",
-      description: "Create or update a workflow schedule.",
+      description:
+        "Create or update a cron schedule (5-field cron, evaluated in UTC by the scheduler worker). " +
+        "This is time-based polling only, not a push/webhook trigger. Set is_enabled false to keep a schedule row without the scheduler enqueuing runs.",
       inputSchema: {
         user_id: z
           .string()

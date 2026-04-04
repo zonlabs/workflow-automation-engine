@@ -61,6 +61,9 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_workflows_workflow_id ON scheduled_work
 CREATE INDEX IF NOT EXISTS idx_scheduled_workflows_status ON scheduled_workflows(status);
 CREATE INDEX IF NOT EXISTS idx_scheduled_workflows_next_run ON scheduled_workflows(next_run_at);
 
+-- Manual/ad-hoc runs: workflow_run creates a disabled schedule named __engine_manual__ when no cron exists,
+-- so execution_logs.scheduled_workflow_id FK is satisfied without forcing users to add a fake cron first.
+
 -- ============================================
 -- EXECUTION_LOGS TABLE
 -- ============================================

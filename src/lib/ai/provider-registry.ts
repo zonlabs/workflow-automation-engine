@@ -4,8 +4,8 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import type { LanguageModel } from "ai";
 
-const DEFAULT_PROVIDER = process.env.AI_DEFAULT_PROVIDER ?? "openai";
-const DEFAULT_MODEL = process.env.AI_DEFAULT_MODEL ?? "gpt-4o";
+const DEFAULT_PROVIDER = process.env.AI_DEFAULT_PROVIDER ?? "deepseek";
+const DEFAULT_MODEL = process.env.AI_DEFAULT_MODEL ?? "deepseek-chat";
 
 type ModelFactory = (modelId: string) => LanguageModel;
 
@@ -63,8 +63,8 @@ export interface ResolvedModel {
 }
 
 /**
- * Parse a tool_slug like "openai/gpt-4o" into a ready-to-use AI SDK LanguageModel.
- * Falls back to AI_DEFAULT_PROVIDER / AI_DEFAULT_MODEL when the slug
+ * Parse a tool_slug like "deepseek/deepseek-chat" or "openai/gpt-4o" into a LanguageModel.
+ * Falls back to AI_DEFAULT_PROVIDER / AI_DEFAULT_MODEL (or built-in deepseek defaults) when the slug
  * doesn't contain a slash.
  */
 export function resolveModel(toolSlug: string): ResolvedModel {
