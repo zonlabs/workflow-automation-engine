@@ -20,7 +20,13 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@engine/*": ["../*"]
+      "@engine/*": ["../*"],
+      "redis": ["./node_modules/redis"],
+      "redis/*": ["./node_modules/redis/*"],
+      "bullmq": ["./node_modules/bullmq"],
+      "bullmq/*": ["./node_modules/bullmq/*"],
+      "ioredis": ["./node_modules/ioredis"],
+      "ioredis/*": ["./node_modules/ioredis/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
