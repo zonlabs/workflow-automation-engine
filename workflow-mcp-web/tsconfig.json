@@ -18,10 +18,16 @@
         "name": "next"
       }
     ],
-    // @engine files live under ../ ; TS resolves their bare imports from ../node_modules (empty on Vercel). Pin to this app's node_modules.
+    // @engine files live under ../ ; TS resolves their bare imports from ../node_modules (empty on Vercel / if you only install here). Pin to this app's node_modules.
     "paths": {
       "@/*": ["./src/*"],
       "@engine/*": ["../*"],
+      "zod": ["./node_modules/zod"],
+      "ai": ["./node_modules/ai"],
+      "@supabase/supabase-js": ["./node_modules/@supabase/supabase-js"],
+      "@ai-sdk/*": ["./node_modules/@ai-sdk/*"],
+      "@mcp-ts/sdk": ["./node_modules/@mcp-ts/sdk"],
+      "@mcp-ts/sdk/*": ["./node_modules/@mcp-ts/sdk/dist/*"],
       "redis": ["./node_modules/redis"],
       "redis/*": ["./node_modules/redis/*"],
       "bullmq": ["./node_modules/bullmq"],
