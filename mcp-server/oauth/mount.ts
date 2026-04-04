@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Application, Request, Response } from "express-serve-static-core";
 import { getIssuer } from "./config";
 import { resolveSupabaseUserIdFromCredential } from "../auth";
 import { sealAuthCode, openAuthCode } from "./auth-code";
@@ -49,7 +49,7 @@ function corsJson(res: Response, body: unknown, status = 200) {
  * OAuth 2.x authorization server for MCP clients (PKCE + dynamic registration).
  * Inspired by https://github.com/alphavantage/alpha_vantage_mcp/blob/main/mcp/src/av_mcp/oauth.py
  */
-export function mountWorkflowOAuth(app: Express): void {
+export function mountWorkflowOAuth(app: Application): void {
   const issuer = getIssuer();
 
   app.get("/.well-known/oauth-authorization-server", (_req: Request, res: Response) => {

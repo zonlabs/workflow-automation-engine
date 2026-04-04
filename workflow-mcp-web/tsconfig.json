@@ -18,9 +18,26 @@
         "name": "next"
       }
     ],
+    // @engine files live under ../ ; TS resolves their bare imports from ../node_modules (empty on Vercel / if you only install here). Pin to this app's node_modules.
     "paths": {
       "@/*": ["./src/*"],
-      "@engine/*": ["../*"]
+      "@engine/*": ["../*"],
+      "zod": ["./node_modules/zod"],
+      "ai": ["./node_modules/ai"],
+      "@supabase/supabase-js": ["./node_modules/@supabase/supabase-js"],
+      "@ai-sdk/*": ["./node_modules/@ai-sdk/*"],
+      "@mcp-ts/sdk": ["./node_modules/@mcp-ts/sdk"],
+      "@mcp-ts/sdk/*": ["./node_modules/@mcp-ts/sdk/dist/*"],
+      "redis": ["./node_modules/redis"],
+      "redis/*": ["./node_modules/redis/*"],
+      "bullmq": ["./node_modules/bullmq"],
+      "bullmq/*": ["./node_modules/bullmq/*"],
+      "ioredis": ["./node_modules/ioredis"],
+      "ioredis/*": ["./node_modules/ioredis/*"],
+      "@modelcontextprotocol/sdk": ["./node_modules/@modelcontextprotocol/sdk"],
+      "@modelcontextprotocol/sdk/*": [
+        "./node_modules/@modelcontextprotocol/sdk/dist/esm/*"
+      ]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

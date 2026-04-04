@@ -1,6 +1,8 @@
 import "dotenv/config";
 import cors from "cors";
-import express, { type Request, type Response } from "express";
+import bodyParser = require("body-parser");
+import expressModule = require("express");
+import type { Request, Response } from "express-serve-static-core";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -17,10 +19,10 @@ import { mountWorkflowOAuth } from "./oauth/mount";
 
 export async function startStreamableHttpServer(createServer: () => McpServer) {
   const port = parseInt(process.env.WORKFLOW_MCP_PORT ?? "3002", 10);
-  const app = express();
+  const app = expressModule();
   app.use(cors());
-  app.use(express.urlencoded({ extended: true }));
-  app.use(express.json({ limit: "2mb" }));
+  app.use(bodyParser.urlencoded({ extended: true }));
+  app.use(bodyParser.json({ limit: "2mb" }));
 
   mountWorkflowOAuth(app);
 

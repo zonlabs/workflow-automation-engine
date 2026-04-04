@@ -27,7 +27,10 @@ You can expose **`POST /api/workflows/run`** (or similar) that only enqueues, an
 
 ## Deploy
 
-1. Create a Vercel project with **root directory** `workflow-automation-engine/workflow-mcp-web` (or deploy from monorepo with that subdirectory).
+1. Create a Vercel project and set **Root Directory** to **`workflow-mcp-web`** only (folder that contains this `README` and `package.json` with `"build": "next build"`).
+   - If your Git repo root is **`mcp-assistant`**, use **`workflow-automation-engine/workflow-mcp-web`**.
+   - If your Git repo root is **`workflow-automation-engine`**, use **`workflow-mcp-web`**.
+   - **Wrong:** leaving Root Directory at the engine root (`workflow-automation-engine`). That runs `npm run build` → `tsc`, which typechecks `workflow-mcp-web/` and `vitest.config.ts` and fails with missing `next`, `mcp-handler`, `@engine/*`, etc.
 2. In Vercel → Project → Settings → Functions: enable **Fluid compute** and set an appropriate **max duration** for `/api/mcp` (this repo sets `maxDuration = 300` in the route).
 3. Add environment variables from `.env.example` (match your worker/Redis/Supabase setup).
 
