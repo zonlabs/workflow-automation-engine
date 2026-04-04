@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { Request } from "express";
+import type { IncomingHttpHeaders } from "node:http";
 import { supabase } from "../src/lib/supabase";
 
 const WORKFLOW_API_KEY_PREFIX = "wfmcp_";
@@ -60,7 +60,9 @@ export async function resolvePrincipalEmailFromCredential(token: string): Promis
 }
 
 /** Returns Supabase user id for workflow `user_id` columns (JWT or API key). */
-export async function resolveUserIdFromRequest(req: Request): Promise<string | null> {
+export async function resolveUserIdFromRequest(req: {
+  headers: IncomingHttpHeaders;
+}): Promise<string | null> {
   const authHeader = req.headers["authorization"];
   if (!authHeader || typeof authHeader !== "string") return null;
 
