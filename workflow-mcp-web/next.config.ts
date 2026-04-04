@@ -11,6 +11,13 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
 }
 
 const nextConfig: NextConfig = {
+  // Bundling the MCP SDK (Zod schemas, JSON-RPC types) breaks at runtime in dev/prod
+  // ("Cannot read properties of undefined (reading 'code')"). Load it from node_modules.
+  serverExternalPackages: [
+    "@modelcontextprotocol/sdk",
+    "ajv",
+    "ajv-formats",
+  ],
   experimental: {
     externalDir: true,
   },
