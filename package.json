@@ -1,5 +1,5 @@
 {
-  "name": "recipe-automation-engine",
+  "name": "workflow-automation-engine",
   "version": "1.0.0",
   "description": "Production-ready BullMQ + Node.js recipe automation engine with Supabase integration",
   "main": "dist/worker.js",
@@ -29,6 +29,7 @@
     "@supabase/supabase-js": "^2.38.0",
     "@vercel/sandbox": "^1.0.0",
     "ai": "^6.0.0",
+    "body-parser": "^1.20.4",
     "bullmq": "^5.0.0",
     "cors": "^2.8.5",
     "cron-parser": "^5.5.0",
