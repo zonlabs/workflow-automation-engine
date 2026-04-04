@@ -8,7 +8,7 @@ async function startWorkers() {
 
   try {
     // Start scheduler to check every 60 seconds
-    const job = await schedulerQueue.add(
+    await schedulerQueue.add(
       'check-schedules',
       {},
       {

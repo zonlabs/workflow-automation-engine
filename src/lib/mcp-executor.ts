@@ -5,6 +5,7 @@ import { executeAIAgentStep } from "./ai/ai-agent";
 import { evaluateAICondition } from "./ai/condition-evaluator";
 import type { AIStepConfig, AIConditionConfig, AIAgentResult } from "./ai/types";
 import { runScriptWorkflow } from "./script-runner";
+import { getScriptFailureMessage } from "./script-result";
 
 type JsonObject = Record<string, unknown>;
 
@@ -400,9 +401,33 @@ async function executeScriptWorkflow(
     stepNumber: 1,
     stepName: "Workflow Script",
     toolSlug: "script",
-    output: result.output ?? result,
+    output: {
+      result: result.output,
+      logs: result.logs ?? null,
+    },
     durationMs: Date.now() - scriptStartedAt,
   };
+
+  const scriptFailure = getScriptFailureMessage(result.output);
+  if (scriptFailure) {
+    const normalized = normalizeError(new NonRetryableExecutionError(scriptFailure, "SCRIPT_RESULT_ERROR"));
+    await updateExecutionLog(jobData.executionLogId, {
+      status: "failed",
+      output_data: context,
+      completed_at: nowIso(),
+      duration_ms: Date.now() - startedAt,
+      error_message: scriptFailure,
+      error_code: "SCRIPT_RESULT_ERROR",
+      error_stack: normalized.stack ? { stack: normalized.stack } : null,
+    });
+
+    return {
+      status: "failed",
+      retryable: false,
+      output: context,
+      error: { message: scriptFailure, code: "SCRIPT_RESULT_ERROR", stack: normalized.stack },
+    };
+  }
 
   await updateExecutionLog(jobData.executionLogId, {
     status: "success",

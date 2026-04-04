@@ -1,11 +1,14 @@
+import "dotenv/config";
 import http from "http";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawn } from "child_process";
-import { MCPClient } from "@mcp-ts/sdk/server";
 import { generateText } from "ai";
 import { resolveModel } from "../src/lib/ai/provider-registry";
+import { buildLocalNodeRunnerFile } from "../src/lib/workflow-node-script-bootstrap";
+import { unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
+import { callToolAcrossSessions } from "./mcp-tool-router";
 
 type RunRequest = {
   script_code: string;
@@ -23,10 +26,10 @@ function jsonResponse(res: http.ServerResponse, status: number, body: object) {
   res.end(payload);
 }
 
-function buildPythonScript(userCode: string) {
+function buildPythonScript() {
   return [
     "import json",
-    "import sys",
+    "import inspect",
     "import urllib.request",
     "",
     "with open('input.json', 'r') as f:",
@@ -50,6 +53,44 @@ function buildPythonScript(userCode: string) {
     "def run_tool(tool_slug, arguments):",
     "    return _post('/tool', {'tool_slug': tool_slug, 'arguments': arguments, 'context': context}).get('output')",
     "",
+    "def tool_result_rows(output):",
+    "    if output is None:",
+    "        return []",
+    "    if isinstance(output, list):",
+    "        return output",
+    "    if not isinstance(output, dict):",
+    "        return []",
+    "    for k in ('results', 'data', 'items', 'rows', 'emails', 'records', 'messages'):",
+    "        v = output.get(k)",
+    "        if isinstance(v, list):",
+    "            return v",
+    "    content = output.get('content')",
+    "    if isinstance(content, list):",
+    "        for block in content:",
+    "            if isinstance(block, dict) and block.get('type') == 'text':",
+    "                t = (block.get('text') or '').strip()",
+    "                if not t or t[0] not in '{[':",
+    "                    continue",
+    "                try:",
+    "                    parsed = json.loads(t)",
+    "                    if isinstance(parsed, list):",
+    "                        return parsed",
+    "                    if isinstance(parsed, dict):",
+    "                        for k in ('results', 'data', 'items', 'rows', 'emails', 'records', 'messages'):",
+    "                            v = parsed.get(k)",
+    "                            if isinstance(v, list):",
+    "                                return v",
+    "                except Exception:",
+    "                    pass",
+    "    return []",
+    "",
+    "class _Mcp:",
+    "    @staticmethod",
+    "    def callTool(tool_slug, arguments):",
+    "        return run_tool(tool_slug, arguments)",
+    "",
+    "mcp = _Mcp()",
+    "",
     "def invoke_llm(prompt, reasoning_effort='low'):",
     "    return _post('/llm', {'prompt': prompt, 'reasoning_effort': reasoning_effort, 'context': context}).get('output')",
     "",
@@ -59,86 +100,44 @@ function buildPythonScript(userCode: string) {
     "def upload_artifact(path):",
     "    raise Exception('upload_artifact is not available in this runner')",
     "",
-    userCode,
+    "_g = {",
+    "    'params': params,",
+    "    'context': context,",
+    "    'run_tool': run_tool,",
+    "    'tool_result_rows': tool_result_rows,",
+    "    'mcp': mcp,",
+    "    'invoke_llm': invoke_llm,",
+    "    'remote_bash': remote_bash,",
+    "    'upload_artifact': upload_artifact,",
+    "}",
     "",
-    "_output = locals().get('output', None)",
+    "with open('script_body.py', 'r') as f:",
+    "    _code = f.read()",
+    "exec(compile(_code, 'script_body.py', 'exec'), _g, _g)",
+    "",
+    "_out = None",
+    "_fn = None",
+    "for _name in ('main', 'execute_workflow'):",
+    "    if callable(_g.get(_name)):",
+    "        _fn = _g[_name]",
+    "        break",
+    "if _fn is not None:",
+    "    _maybe = _fn(params, context)",
+    "    if inspect.isawaitable(_maybe):",
+    "        import asyncio",
+    "        _out = asyncio.run(_maybe)",
+    "    else:",
+    "        _out = _maybe",
+    "elif 'output' in _g:",
+    "    _out = _g['output']",
+    "else:",
+    "    raise Exception(",
+    "        'WORKFLOW_SCRIPT_NO_ENTRY_POINT: define def main(params, context) or def execute_workflow(params, context), or set output. '",
+    "        'Use run_tool(tool_slug, arguments) or mcp.callTool(tool_slug, arguments) for MCP tools.'",
+    "    )",
+    "",
     "with open('output.json', 'w') as f:",
-    "    json.dump({'output': _output}, f, default=str)",
-    "",
-  ].join("\n");
-}
-
-function buildNodeScript(userCode: string) {
-  return [
-    "const fs = require('fs');",
-    "const { execSync } = require('child_process');",
-    "",
-    "const payload = JSON.parse(fs.readFileSync('input.json', 'utf8'));",
-    "const params = payload.params || {};",
-    "const context = payload.context || {};",
-    "const runnerUrl = payload.runner_url;",
-    "",
-    "async function _post(path, body) {",
-    "  if (!runnerUrl) throw new Error('runner_url is not available');",
-    "  const res = await fetch(runnerUrl + path, {",
-    "    method: 'POST',",
-    "    headers: { 'Content-Type': 'application/json' },",
-    "    body: JSON.stringify(body)",
-    "  });",
-    "  const text = await res.text();",
-    "  let parsed = {};",
-    "  try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = {}; }",
-    "  if (parsed && parsed.error) throw new Error(parsed.error);",
-    "  return parsed;",
-    "}",
-    "",
-    "async function run_tool(tool_slug, arguments_) {",
-    "  const result = await _post('/tool', { tool_slug, arguments: arguments_, context });",
-    "  return result.output;",
-    "}",
-    "",
-    "async function invoke_llm(prompt, reasoning_effort='low') {",
-    "  const result = await _post('/llm', { prompt, reasoning_effort, context });",
-    "  return result.output;",
-    "}",
-    "",
-    "function remote_bash(command) {",
-    "  try {",
-    "    const stdout = execSync(command, { stdio: ['ignore', 'pipe', 'pipe'] }).toString();",
-    "    return { stdout, stderr: '', code: 0 };",
-    "  } catch (err) {",
-    "    return { stdout: '', stderr: String(err?.stderr || err?.message || err), code: 1 };",
-    "  }",
-    "}",
-    "",
-    "function upload_artifact(_path) {",
-    "  throw new Error('upload_artifact is not available in this runner');",
-    "}",
-    "",
-    "const moduleObj = { exports: {} };",
-    "const exportsObj = moduleObj.exports;",
-    `const userCode = ${JSON.stringify(userCode)};`,
-    "const fn = new Function('module','exports','require','run_tool','invoke_llm','remote_bash','upload_artifact','params','context',",
-    "  `return (async () => {\\n${userCode}\\n})();`",
-    ");",
-    "",
-    "(async () => {",
-    "  let maybeExport = await fn(moduleObj, exportsObj, require, run_tool, invoke_llm, remote_bash, upload_artifact, params, context);",
-    "  let mainFn = null;",
-    "  if (typeof maybeExport === 'function') mainFn = maybeExport;",
-    "  else if (moduleObj.exports && typeof moduleObj.exports === 'function') mainFn = moduleObj.exports;",
-    "  else if (moduleObj.exports && typeof moduleObj.exports.main === 'function') mainFn = moduleObj.exports.main;",
-    "  else if (typeof global.main === 'function') mainFn = global.main;",
-    "",
-    "  let output = null;",
-    "  if (mainFn) {",
-    "    output = await mainFn(params, context);",
-    "  } else if (typeof global.output !== 'undefined') {",
-    "    output = global.output;",
-    "  }",
-    "",
-    "  fs.writeFileSync('output.json', JSON.stringify({ output }, null, 2));",
-    "})();",
+    "    json.dump({'output': _out}, f, default=str)",
     "",
   ].join("\n");
 }
@@ -170,7 +169,8 @@ function runPythonScript(
   const outputPath = join(tempDir, "output.json");
 
   writeFileSync(inputPath, JSON.stringify(payload ?? {}), "utf8");
-  writeFileSync(scriptPath, buildPythonScript(scriptCode), "utf8");
+  writeFileSync(join(tempDir, "script_body.py"), scriptCode, "utf8");
+  writeFileSync(scriptPath, buildPythonScript(), "utf8");
 
   return new Promise((resolve, reject) => {
     let stdout = "";
@@ -230,7 +230,7 @@ function runNodeScript(
   const outputPath = join(tempDir, "output.json");
 
   writeFileSync(inputPath, JSON.stringify(payload ?? {}), "utf8");
-  writeFileSync(scriptPath, buildNodeScript(scriptCode), "utf8");
+  writeFileSync(scriptPath, buildLocalNodeRunnerFile(scriptCode), "utf8");
 
   return new Promise((resolve, reject) => {
     let stdout = "";
@@ -310,24 +310,20 @@ async function handleToolCall(payload: any) {
   if (!toolSlug) throw new Error("tool_slug is required");
   const context = (payload?.context ?? {}) as Record<string, unknown>;
   const userId = String(context.user_id ?? "");
-  const sessionId = String(context.session_id ?? "");
-  if (!userId || !sessionId) {
-    throw new Error("context.user_id and context.session_id are required");
+  if (!userId) {
+    throw new Error("context.user_id is required");
   }
+  const hintSessionId = context.session_id != null && String(context.session_id).trim()
+    ? String(context.session_id).trim()
+    : undefined;
 
-  const client = new MCPClient({ identity: userId, sessionId });
-  try {
-    await client.connect();
-    const result = await client.callTool(toolSlug, payload?.arguments ?? {});
-    return result;
-  } finally {
-    try {
-      await client.disconnect("script-runner-tool-call");
-    } catch {}
-    try {
-      client.dispose();
-    } catch {}
-  }
+  const raw = await callToolAcrossSessions(
+    userId,
+    toolSlug,
+    (payload?.arguments ?? {}) as Record<string, unknown>,
+    hintSessionId
+  );
+  return unwrapMcpToolCallResult(raw);
 }
 
 async function handleLlmCall(payload: any) {

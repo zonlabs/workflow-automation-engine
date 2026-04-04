@@ -87,6 +87,8 @@ function inferCheapModel(providerName: string): string {
       return "claude-3-5-haiku-20241022";
     case "google":
       return "gemini-2.0-flash";
+    case "deepseek":
+      return "deepseek-chat";
     default:
       return getDefaultModel();
   }

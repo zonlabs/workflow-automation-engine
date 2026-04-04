@@ -152,6 +152,11 @@ async function checkAndEnqueueSchedules() {
   return { checked: schedules.length, enqueued };
 }
 
+/** Default 5m: scheduler does many DB/session calls; BullMQ's 30s lock causes "Missing lock" on moveToFinished. */
+const schedulerLockDurationMs = Number(
+  process.env.SCHEDULER_LOCK_DURATION_MS ?? "300000"
+);
+
 export const schedulerWorker = new Worker(
   SCHEDULER_QUEUE_NAME,
   async () => {
@@ -166,6 +171,9 @@ export const schedulerWorker = new Worker(
   {
     connection: getSharedRedisConnection(),
     concurrency: 1,
+    lockDuration: Number.isFinite(schedulerLockDurationMs)
+      ? schedulerLockDurationMs
+      : 300000,
   }
 );
 

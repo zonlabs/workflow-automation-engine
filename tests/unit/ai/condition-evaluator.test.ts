@@ -215,6 +215,20 @@ describe("evaluateAICondition", () => {
     expect(vi.mocked(resolveModel)).toHaveBeenCalledWith("google/gemini-2.0-flash");
   });
 
+  it("infers cheap deepseek model when provider=deepseek but no model", async () => {
+    const { resolveModel } = await import("../../../src/lib/ai/provider-registry");
+
+    vi.mocked(generateText).mockResolvedValueOnce(
+      makeGenerateTextResult(
+        JSON.stringify({ should_execute: true, reasoning: "yes" })
+      ) as any
+    );
+
+    await evaluateAICondition({ prompt: "run?", provider: "deepseek" }, {}, {});
+
+    expect(vi.mocked(resolveModel)).toHaveBeenCalledWith("deepseek/deepseek-chat");
+  });
+
   // ── Context building ──────────────────────────────────────────────────────
 
   it("passes workflow params to generateText prompt", async () => {

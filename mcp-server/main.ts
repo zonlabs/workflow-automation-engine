@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
 import { createMcpServer } from "./server";
 import { resolveUserIdFromRequest } from "./auth";
 import { runWithRequestContext } from "./request-context";
@@ -90,8 +91,8 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
       const client = new MCPClient({ identity: userId, sessionId });
       try {
         await client.connect();
-        const output = await client.callTool(tool_slug, args ?? {});
-        res.json({ output });
+        const raw = await client.callTool(tool_slug, args ?? {});
+        res.json({ output: unwrapMcpToolCallResult(raw) });
       } finally {
         try {
           await client.disconnect("script-helper-tool");
