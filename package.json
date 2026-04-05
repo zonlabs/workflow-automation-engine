@@ -1,6 +1,6 @@
 {
   "name": "workflow-automation-engine",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Production-ready BullMQ + Node.js recipe automation engine with Supabase integration",
   "main": "dist/worker.js",
   "scripts": {
