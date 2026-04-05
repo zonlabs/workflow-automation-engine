@@ -45,9 +45,17 @@ export async function POST(req: Request) {
       }
     }
   } catch (err) {
-    return Response.json(
-      { error: err instanceof Error ? err.message : "Tool call failed" },
-      { status: 500 }
-    );
+    const message = err instanceof Error ? err.message : "Tool call failed";
+    try {
+      const asAny = err as { stack?: string; cause?: unknown; response?: unknown };
+      console.error("[script-helper/tool] Tool call failed:", message, {
+        stack: asAny?.stack,
+        cause: asAny?.cause,
+        response: asAny?.response,
+      });
+    } catch {
+      console.error("[script-helper/tool] Tool call failed:", message);
+    }
+    return Response.json({ error: message }, { status: 500 });
   }
 }
