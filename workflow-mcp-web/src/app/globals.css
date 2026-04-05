@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
+/* Matches public/logo.svg: fill #000000, stroke #e8e8e8 */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafafa;
+  --foreground: #0a0a0a;
+  --logo-line: #e8e8e8;
+  --logo-ink: #000000;
+  --muted: #525252;
+  --card: rgba(255, 255, 255, 0.85);
+  --card-border: #e5e5e5;
 }
 
 @theme inline {
@@ -14,13 +20,22 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #000000;
+    --foreground: #e8e8e8;
+    --muted: #a3a3a3;
+    --card: rgba(23, 23, 23, 0.6);
+    --card-border: #262626;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
