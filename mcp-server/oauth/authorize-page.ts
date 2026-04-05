@@ -247,6 +247,13 @@ export function buildOauthAuthorizeHtml(
       border-radius: 8px;
     }
     .hint code { font-size: 0.75rem; }
+    .hint a {
+      color: #0a0a0a;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .hint a:hover { color: #404040; }
     label {
       display: block;
       font-size: 0.8125rem;
@@ -315,6 +322,13 @@ export function buildOauthAuthorizeHtml(
       text-align: center;
       line-height: 1.45;
     }
+    .fineprint a {
+      color: #525252;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .fineprint a:hover { color: #171717; }
   </style>
 </head>
 <body>
@@ -346,7 +360,7 @@ export function buildOauthAuthorizeHtml(
         <li>${checkSvg}<span>Full access to your workflows, schedules, and execution history for this account</span></li>
         <li>${checkSvg}<span>Allow the application to run workflows using credentials you provide below</span></li>
       </ul>
-      <p class="hint">Paste a <strong>workflow API key</strong> (<code>wfmcp_…</code>) from your app settings, or your <strong>signed-in session access token</strong> (JWT). That same value is returned as the OAuth access token for MCP.</p>
+      <p class="hint">Get an API key at <a href="https://mcp-assistant.in/settings/api-keys" target="_blank" rel="noopener noreferrer">mcp-assistant.in/settings/api-keys</a>. Paste a <strong>workflow API key</strong> (<code>wfmcp_…</code>) or your <strong>signed-in session access token</strong> (JWT).</p>
       <form method="post" action="${esc(action)}">
         <input type="hidden" name="response_type" value="code" />
         <input type="hidden" name="client_id" value="${esc(p.client_id)}" />
@@ -363,7 +377,7 @@ export function buildOauthAuthorizeHtml(
         </div>
       </form>
     </div>
-    <p class="fineprint">You can revoke workflow API keys anytime in your app settings.</p>
+    <p class="fineprint">You can create or revoke workflow API keys anytime at <a href="https://mcp-assistant.in/settings/api-keys" target="_blank" rel="noopener noreferrer">mcp-assistant.in/settings/api-keys</a>.</p>
   </div>
 </body>
 </html>`;

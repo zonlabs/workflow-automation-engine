@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const tools = [
@@ -66,13 +67,13 @@ export default function Home() {
 
       <div className="mx-auto flex max-w-4xl flex-col gap-14 px-6 py-16 sm:gap-16 sm:py-24">
         <header className="grid grid-cols-1 justify-items-center gap-10 sm:grid-cols-[7.5rem_1fr] sm:items-start sm:justify-items-start sm:gap-x-10 sm:gap-y-0">
-          <img
+          <Image
             src="/logo.svg"
             alt="Workflow Automation MCP"
             width={120}
             height={120}
             className="block h-[7.5rem] w-[7.5rem] shrink-0 rounded-xl shadow-[0_0_48px_-12px_rgba(232,232,232,0.25)] ring-1 ring-[var(--card-border)] dark:shadow-[0_0_40px_-8px_rgba(232,232,232,0.12)]"
-            decoding="async"
+            priority
           />
           <div className="min-w-0 w-full max-w-full space-y-6 text-center sm:space-y-8 sm:text-left sm:pt-1">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
@@ -114,6 +115,21 @@ export default function Home() {
           <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--muted)]">
             Connection
           </h2>
+          <p className="text-sm leading-relaxed text-[var(--muted)]">
+            For OAuth or MCP auth you need a{" "}
+            <strong className="font-medium text-[var(--foreground)]">workflow API key</strong>{" "}
+            (<code className="rounded bg-[var(--card)] px-1 py-0.5 font-mono text-xs">wfmcp_…</code>).
+            Create or copy one in{" "}
+            <a
+              href="https://mcp-assistant.in/settings/api-keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[var(--foreground)] underline decoration-[var(--muted)] underline-offset-4 transition-colors hover:decoration-[var(--foreground)]"
+            >
+              MCP Assistant → Settings → API keys
+            </a>
+            .
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <EndpointRow
               label="MCP endpoint"
