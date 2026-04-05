@@ -17,10 +17,22 @@ function parseBoolean(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+/** Ensure redis:// or rediss:// so ioredis does not treat the value as a socket path (ENOENT). */
+function normalizeRedisConnectionUrl(url: string): string {
+  const t = url.trim();
+  if (/^rediss?:\/\//i.test(t)) {
+    return t;
+  }
+  if (t.startsWith("//")) {
+    return `redis:${t}`;
+  }
+  return `redis://${t}`;
+}
+
 function resolveRedisUrl(): string {
   const urlFromEnv = getRequiredString(process.env.REDIS_URL);
   if (urlFromEnv) {
-    return urlFromEnv;
+    return normalizeRedisConnectionUrl(urlFromEnv);
   }
 
   const railwayHost = getRequiredString(process.env.REDISHOST);

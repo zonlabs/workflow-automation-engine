@@ -67,6 +67,26 @@ describe("redis – URL resolution", () => {
     );
   });
 
+  it('prepends redis: when REDIS_URL wrongly starts with // (avoids ENOENT / socket path)', async () => {
+    process.env.REDIS_URL = "//default:secret@redis.example.com:12525/0";
+    const { createRedisConnection } = await import("../../src/lib/redis");
+    createRedisConnection();
+    expect(mockIORedis).toHaveBeenCalledWith(
+      "redis://default:secret@redis.example.com:12525/0",
+      expect.any(Object)
+    );
+  });
+
+  it("prepends redis:// when REDIS_URL has no scheme (user:pass@host:port)", async () => {
+    process.env.REDIS_URL = "default:pw@myhost:6379/0";
+    const { createRedisConnection } = await import("../../src/lib/redis");
+    createRedisConnection();
+    expect(mockIORedis).toHaveBeenCalledWith(
+      "redis://default:pw@myhost:6379/0",
+      expect.any(Object)
+    );
+  });
+
   // ── Railway-style env vars (REDISHOST / REDISPORT) ───────────────────────
 
   it("builds redis:// URL from REDISHOST + REDISPORT (no password)", async () => {
