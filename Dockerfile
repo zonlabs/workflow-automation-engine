@@ -1,21 +1,21 @@
-FROM node:18-alpine
-
+# syntax=docker/dockerfile:1
+# Builder needs devDependencies (TypeScript). Runtime image is production-only + dist/.
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy source
-COPY lib/ ./lib/
-COPY workers/ ./workers/
-COPY worker.ts ./
-
-# Build
+COPY . .
 RUN npm run build
 
-# Run worker
-CMD ["npm", "start"]
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
+
+CMD ["node", "dist/worker.js"]
