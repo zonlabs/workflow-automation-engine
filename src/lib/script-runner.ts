@@ -170,7 +170,19 @@ async function runViaVercelSandbox(payload: ScriptRunPayload): Promise<ScriptRun
     throw new Error("WORKFLOW_SCRIPT_HELPER_URL is not configured");
   }
 
-  const sandbox = await Sandbox.create({ runtime, timeout });
+  const teamId = process.env.VERCEL_TEAM_ID?.trim();
+  const projectId = process.env.VERCEL_PROJECT_ID?.trim();
+  const vercelToken = process.env.VERCEL_TOKEN?.trim();
+  const vercelCreds =
+    teamId && projectId && vercelToken
+      ? { teamId, projectId, token: vercelToken }
+      : {};
+
+  const sandbox = await Sandbox.create({
+    runtime,
+    timeout,
+    ...vercelCreds,
+  });
 
   try {
     const inputPayload = {
