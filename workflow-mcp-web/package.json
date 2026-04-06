@@ -2,6 +2,14 @@
   "name": "workflow-mcp-web",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "mcp-handler": {
+      "@modelcontextprotocol/sdk": "$@modelcontextprotocol/sdk"
+    }
+  },
   "scripts": {
     "build:mcp-app": "node scripts/bundle-mcp-apps.mjs",
     "prebuild": "npm run build:mcp-app",
