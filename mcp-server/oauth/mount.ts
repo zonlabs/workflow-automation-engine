@@ -5,7 +5,7 @@ import { sealAuthCode, openAuthCode } from "./auth-code";
 import { verifyPkceChallenge } from "./pkce";
 import { getClient, registerClient } from "./registry";
 import { describeRedirectUriPolicyForError, isAllowedRedirectUri } from "./redirect-uri";
-import { buildOauthAuthorizeHtml, buildOauthNativeRedirectHtml } from "./authorize-page";
+import { buildOauthAuthorizeHtml } from "./authorize-page";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 
@@ -221,18 +221,6 @@ export function mountWorkflowOAuth(app: Application): void {
     u.searchParams.set("code", code);
     if (state) u.searchParams.set("state", state);
     const finalUrl = u.toString();
-
-    try {
-      const ru = new URL(redirect_uri);
-      if (ru.protocol !== "http:" && ru.protocol !== "https:") {
-        const appLabel = client.clientName?.trim() || "your application";
-        res.setHeader("Cache-Control", "no-store");
-        res.status(200).type("html").send(buildOauthNativeRedirectHtml(finalUrl, appLabel));
-        return;
-      }
-    } catch {
-      /* fall through */
-    }
 
     res.redirect(finalUrl);
   });

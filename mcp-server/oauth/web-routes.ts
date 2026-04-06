@@ -8,7 +8,7 @@ import { sealAuthCode, openAuthCode } from "./auth-code";
 import { verifyPkceChallenge } from "./pkce";
 import { getClient, registerClient } from "./registry";
 import { describeRedirectUriPolicyForError, isAllowedRedirectUri } from "./redirect-uri";
-import { buildOauthAuthorizeHtml, buildOauthNativeRedirectHtml } from "./authorize-page";
+import { buildOauthAuthorizeHtml } from "./authorize-page";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 
@@ -225,25 +225,6 @@ export async function oauthAuthorizePost(form: Record<string, string>): Promise<
   u.searchParams.set("code", code);
   if (state) u.searchParams.set("state", state);
   const finalUrl = u.toString();
-
-  // Custom-scheme redirects (cursor://, vscode://, …): 302 often does not close embedded
-  // OAuth UIs; return a success page that navigates via JS + offers a manual link.
-  try {
-    const ru = new URL(redirect_uri);
-    if (ru.protocol !== "http:" && ru.protocol !== "https:") {
-      const appLabel = client.clientName?.trim() || "your application";
-      const html = buildOauthNativeRedirectHtml(finalUrl, appLabel);
-      return new Response(html, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-  } catch {
-    /* fall through to redirect */
-  }
 
   return Response.redirect(finalUrl, 302);
 }

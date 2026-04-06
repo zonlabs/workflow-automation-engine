@@ -56,98 +56,6 @@ export type AuthorizePageParams = {
   scope: string;
 };
 
-/**
- * After consent, HTTP 302 to `cursor://` / other custom schemes often leaves embedded
- * OAuth webviews stuck on a loading state. Return 200 + JS navigation + manual link instead.
- */
-export function buildOauthNativeRedirectHtml(redirectUrl: string, appLabel: string): string {
-  const urlJs = JSON.stringify(redirectUrl);
-  const href = esc(redirectUrl);
-  const label = esc(appLabel.trim() || "the application");
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light" />
-  <title>Authorized · Workflow Engine</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #e8e8e8;
-      color: #171717;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
-      -webkit-font-smoothing: antialiased;
-    }
-    .card {
-      width: 100%;
-      max-width: 24rem;
-      background: #fff;
-      border: 1px solid #d4d4d4;
-      border-radius: 10px;
-      padding: 1.35rem 1.25rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-      text-align: center;
-    }
-    h1 {
-      font-size: 1.05rem;
-      font-weight: 600;
-      margin: 0 0 0.5rem;
-      color: #0a0a0a;
-    }
-    p {
-      margin: 0 0 0.85rem;
-      font-size: 0.875rem;
-      line-height: 1.45;
-      color: #525252;
-    }
-    a {
-      color: #0a0a0a;
-      font-weight: 600;
-      word-break: break-all;
-    }
-    .ok {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 2.5rem;
-      height: 2.5rem;
-      border-radius: 999px;
-      background: #ecfdf5;
-      color: #15803d;
-      font-size: 1.35rem;
-      margin: 0 auto 0.75rem;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="ok" aria-hidden="true">✓</div>
-    <h1>You're signed in</h1>
-    <p>Returning to <strong>${label}</strong>. If nothing happens, use the link below.</p>
-    <p><a href="${href}">Open ${label}</a></p>
-  </div>
-  <script>
-    (function () {
-      var u = ${urlJs};
-      function go() {
-        try { window.location.replace(u); } catch (e) {}
-      }
-      go();
-      setTimeout(go, 80);
-      setTimeout(go, 400);
-    })();
-  </script>
-</body>
-</html>`;
-}
-
 /** HTML for GET /oauth/authorize (shared by Express and Vercel). */
 export function buildOauthAuthorizeHtml(
   issuer: string,
@@ -193,12 +101,13 @@ export function buildOauthAuthorizeHtml(
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
     .title {
-      font-size: 1.15rem;
-      font-weight: 600;
+      font-size: 1.2rem;
+      font-weight: 700;
       margin: 0 0 0.85rem;
       letter-spacing: -0.02em;
       color: #0a0a0a;
       line-height: 1.25;
+      text-align: center;
     }
     .consent-identities {
       margin: 0 0 1rem;
@@ -252,10 +161,12 @@ export function buildOauthAuthorizeHtml(
       line-height: 1.15;
     }
     .request-copy {
-      margin: 0.45rem 0 0;
+      margin: 0.45rem auto 0;
+      max-width: 22rem;
       font-size: 0.8rem;
       color: #404040;
       line-height: 1.35;
+      text-align: center;
     }
     .request-copy strong {
       color: #111827;
@@ -373,12 +284,14 @@ export function buildOauthAuthorizeHtml(
       line-height: 1.35;
     }
     .redirect {
-      margin: 0.4rem 0 0;
+      margin: 0.4rem auto 0;
+      max-width: 22rem;
       padding-top: 0.4rem;
       border-top: 1px solid #ededed;
       font-size: 0.6875rem;
       color: #737373;
       line-height: 1.35;
+      text-align: center;
     }
     .redirect code {
       font-size: 0.78rem;

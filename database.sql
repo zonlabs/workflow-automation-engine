@@ -133,30 +133,6 @@ CREATE TABLE IF NOT EXISTS workflow_steps (
 CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_id ON workflow_steps(workflow_id);
 
 -- ============================================
--- MCP_CREDENTIALS TABLE
--- ============================================
-CREATE TABLE IF NOT EXISTS mcp_credentials (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  
-  toolkit TEXT NOT NULL,
-  credential_name TEXT NOT NULL,
-  
-  encrypted_credential BYTEA NOT NULL,
-  encryption_key_version INTEGER,
-  
-  is_active BOOLEAN DEFAULT TRUE,
-  last_used_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  
-  UNIQUE(user_id, toolkit, credential_name)
-);
-
-CREATE INDEX IF NOT EXISTS idx_mcp_credentials_user_id ON mcp_credentials(user_id);
-CREATE INDEX IF NOT EXISTS idx_mcp_credentials_toolkit ON mcp_credentials(toolkit);
-
--- ============================================
 -- WEBHOOK_TRIGGERS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS webhook_triggers (
@@ -278,12 +254,8 @@ WHERE owner_email IS NULL OR btrim(owner_email) = '';
 ALTER TABLE workflow_user_api_keys ALTER COLUMN owner_email SET NOT NULL;
 
 -- Legacy cleanup (safe if columns were never created)
-DROP INDEX IF EXISTS idx_mcp_credentials_external_user_id;
 DROP INDEX IF EXISTS idx_audit_logs_external_user_id;
-ALTER TABLE mcp_credentials DROP COLUMN IF EXISTS external_user_id;
 ALTER TABLE audit_logs DROP COLUMN IF EXISTS external_user_id;
--- If you migrated an old DB and lost uniqueness on credentials, add:
--- CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_credentials_user_toolkit_name ON mcp_credentials(user_id, toolkit, credential_name);
 
 DROP INDEX IF EXISTS idx_workflows_runner_user_id;
 DROP INDEX IF EXISTS idx_scheduled_workflows_runner_user_id;
