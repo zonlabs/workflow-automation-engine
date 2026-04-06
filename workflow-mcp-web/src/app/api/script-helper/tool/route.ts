@@ -15,6 +15,15 @@ export async function POST(req: Request) {
     const args = (body?.arguments ?? {}) as Record<string, unknown>;
     const context = (body?.context ?? {}) as Record<string, unknown>;
 
+    console.log("[script-helper/tool] received:", {
+      tool_slug,
+      arguments: args,
+      context,
+      user_id: context?.user_id,
+      session_id: context?.session_id,
+      body_keys: Object.keys(body),
+    });
+
     if (!tool_slug) {
       return Response.json({ error: "tool_slug is required" }, { status: 400 });
     }
