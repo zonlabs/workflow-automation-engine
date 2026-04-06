@@ -20,6 +20,10 @@
 # production
 /build
 
+# generated MCP App bundle (built by `npm run build:mcp-app` / prebuild)
+public/mcp-app-dashboard.iife.js
+public/mcp-app-execution-chart.iife.js
+
 # misc
 .DS_Store
 *.pem

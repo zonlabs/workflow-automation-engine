@@ -15,6 +15,7 @@ const nextConfig: NextConfig = {
   // ("Cannot read properties of undefined (reading 'code')"). Load it from node_modules.
   serverExternalPackages: [
     "@modelcontextprotocol/sdk",
+    "@modelcontextprotocol/ext-apps",
     "ajv",
     "ajv-formats",
   ],

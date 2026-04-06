@@ -2,8 +2,13 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import { registerWorkflowMcpWebTools } from "@engine/mcp-server/workflow-mcp-web-tools";
 import { runWithRequestContext } from "@engine/mcp-server/request-context";
+import {
+  registerWorkflowMcpApp,
+  WORKFLOW_MCP_EXECUTION_CHART_URI,
+} from "@/lib/register-workflow-mcp-app";
 
 type Session = {
   transport: WebStandardStreamableHTTPServerTransport;
@@ -101,11 +106,16 @@ export async function handleStreamableMcpRequest(
         },
       });
       const server = new McpServer(
-        { name: "workflow-automation-engine", version: "1.0.0" },
+        { name: "workflow-mcp-web", version: "1.0.0" },
         {}
       );
+      registerWorkflowMcpApp(server);
       registerWorkflowMcpWebTools(
-        server as unknown as Parameters<typeof registerWorkflowMcpWebTools>[0]
+        server as unknown as Parameters<typeof registerWorkflowMcpWebTools>[0],
+        {
+          executionChartResourceUri: WORKFLOW_MCP_EXECUTION_CHART_URI,
+          registerAppToolForExecutionLogs: registerAppTool,
+        }
       );
       await server.connect(transport);
       session = { transport, server };
