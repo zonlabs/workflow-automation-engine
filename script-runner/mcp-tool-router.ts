@@ -34,6 +34,15 @@ export type ToolResolutionMeta = {
   warning?: string;
 };
 
+function formatToolCallError(err: unknown): string {
+  if (err instanceof Error) return err.message || String(err);
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 export async function callToolAcrossSessions(
   userId: string,
   toolSlug: string,
@@ -41,6 +50,7 @@ export async function callToolAcrossSessions(
   hintSessionId?: string
 ): Promise<{ raw: unknown; meta: ToolResolutionMeta }> {
   const multi = new MultiSessionClient(userId);
+  let lastAdvertisedFailure: { serverUrl?: string; message: string } | null = null;
   try {
     await multi.connect();
     const clients = sortClientsForToolSlug(multi.getClients(), toolSlug);
@@ -55,14 +65,21 @@ export async function callToolAcrossSessions(
       const names = listed?.tools ?? [];
       const has = names.some((t) => t?.name === toolSlug);
       if (!has) continue;
-      return {
-        raw: await c.callTool(toolSlug, args),
-        meta: {
-          mode: "listed_session",
-          toolSlug,
-          serverUrl: c.getServerUrl() || undefined,
-        },
-      };
+
+      const serverUrl = c.getServerUrl() || undefined;
+      try {
+        return {
+          raw: await c.callTool(toolSlug, args),
+          meta: {
+            mode: "listed_session",
+            toolSlug,
+            serverUrl,
+          },
+        };
+      } catch (err) {
+        lastAdvertisedFailure = { serverUrl, message: formatToolCallError(err) };
+        continue;
+      }
     }
   } finally {
     multi.disconnect();
@@ -79,19 +96,30 @@ export async function callToolAcrossSessions(
 
   if (hintSessionId) {
     const client = new MCPClient({ identity: userId, sessionId: hintSessionId });
+    const hintedUrl = client.getServerUrl() || undefined;
     try {
-      await client.connect();
-      return {
-        raw: await client.callTool(toolSlug, args),
-        meta: {
-          mode: "hint_session_fallback",
-          toolSlug,
-          serverUrl: client.getServerUrl() || undefined,
-          warning:
-            `Tool "${toolSlug}" was executed via hint-session fallback because no connected session advertised it via listTools(). ` +
-            `If this is unexpected, enable strict mode with WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true.`,
-        },
-      };
+      try {
+        await client.connect();
+        return {
+          raw: await client.callTool(toolSlug, args),
+          meta: {
+            mode: "hint_session_fallback",
+            toolSlug,
+            serverUrl: hintedUrl,
+            warning:
+              `Tool "${toolSlug}" was executed via hint-session fallback because no connected session advertised it via listTools(). ` +
+              `If this is unexpected, enable strict mode with WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true.`,
+          },
+        };
+      } catch (err) {
+        const advertisedNote = lastAdvertisedFailure
+          ? ` Last advertised-session failure: ${lastAdvertisedFailure.serverUrl ?? "<unknown url>"}: ${lastAdvertisedFailure.message}`
+          : "";
+        throw new Error(
+          `Hint-session fallback failed for tool "${toolSlug}" using session "${hintSessionId}" at ${hintedUrl ?? "<unknown url>"}: ` +
+            `${formatToolCallError(err)}.${advertisedNote}`
+        );
+      }
     } finally {
       try {
         client.disconnect("script-runner-hint-fallback");
@@ -104,6 +132,13 @@ export async function callToolAcrossSessions(
         /* ignore */
       }
     }
+  }
+
+  if (lastAdvertisedFailure) {
+    throw new Error(
+      `Tool "${toolSlug}" was advertised but failed to execute at ${lastAdvertisedFailure.serverUrl ?? "<unknown url>"}: ` +
+        `${lastAdvertisedFailure.message}`
+    );
   }
 
   throw new Error(

@@ -123,5 +123,64 @@ describe("callToolAcrossSessions", () => {
     );
     expect(mcpClientCtor).not.toHaveBeenCalled();
   });
-});
 
+  it("continues to next advertised session if the first fails", async () => {
+    const failing = makeMockClient({
+      serverUrl: "https://bad.mcp",
+      tools: ["my_tool"],
+    });
+    failing.callTool.mockRejectedValueOnce(new Error("SSE error: Non-200 status code (404)"));
+
+    const good = makeMockClient({
+      serverUrl: "https://good.mcp",
+      tools: ["my_tool"],
+      callResult: { content: [{ type: "text", text: "{\"ok\":\"good\"}" }] },
+    });
+
+    vi.mocked(sdkServer.MultiSessionClient).mockImplementation(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        disconnect: vi.fn(),
+        getClients: vi.fn().mockReturnValue([failing, good]),
+      };
+    } as any);
+
+    const { raw, meta } = await callToolAcrossSessions("user-1", "my_tool", {});
+    expect(raw).toEqual({ content: [{ type: "text", text: "{\"ok\":\"good\"}" }] });
+    expect(meta.serverUrl).toBe("https://good.mcp");
+    expect(meta.mode).toBe("listed_session");
+  });
+
+  it("includes session + server URL when hint fallback fails", async () => {
+    const other = makeMockClient({
+      serverUrl: "https://other.mcp",
+      tools: ["something_else"],
+    });
+
+    vi.mocked(sdkServer.MultiSessionClient).mockImplementation(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        disconnect: vi.fn(),
+        getClients: vi.fn().mockReturnValue([other]),
+      };
+    } as any);
+
+    const hinted = makeMockClient({
+      serverUrl: "https://hinted.mcp",
+      tools: ["only_meta_tools"],
+    });
+    hinted.connect.mockRejectedValueOnce(new Error("SSE error: Non-200 status code (404)"));
+
+    vi.mocked(sdkServer.MCPClient).mockImplementation(function () {
+      return hinted;
+    } as any);
+
+    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(
+      /session \"sess-hint\"/
+    );
+    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(
+      /https:\/\/hinted\.mcp/
+    );
+    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(/404/);
+  });
+});
