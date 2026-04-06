@@ -67,15 +67,15 @@ describe("callToolAcrossSessions", () => {
     expect(meta.warning).toBeUndefined();
   });
 
-  it("falls back to hint session when tool is not advertised", async () => {
+  it("falls back to context session when tool is not advertised", async () => {
     const other = makeMockClient({
       serverUrl: "https://other.mcp",
       tools: ["something_else"],
     });
-    const hinted = makeMockClient({
-      serverUrl: "https://hinted.mcp",
+    const contextSessionClient = makeMockClient({
+      serverUrl: "https://context-session.mcp",
       tools: ["only_meta_tools"],
-      callResult: { content: [{ type: "text", text: "{\"ok\":\"hint\"}" }] },
+      callResult: { content: [{ type: "text", text: "{\"ok\":\"fallback\"}" }] },
     });
 
     vi.mocked(sdkServer.MultiSessionClient).mockImplementation(function () {
@@ -87,16 +87,16 @@ describe("callToolAcrossSessions", () => {
     } as any);
 
     vi.mocked(sdkServer.MCPClient).mockImplementation(function () {
-      return hinted;
+      return contextSessionClient;
     } as any);
 
-    const { raw, meta } = await callToolAcrossSessions("user-1", "unlisted_tool", { q: "x" }, "sess-hint");
+    const { raw, meta } = await callToolAcrossSessions("user-1", "unlisted_tool", { q: "x" }, "sess-ctx");
 
-    expect(raw).toEqual({ content: [{ type: "text", text: "{\"ok\":\"hint\"}" }] });
-    expect(meta.mode).toBe("hint_session_fallback");
+    expect(raw).toEqual({ content: [{ type: "text", text: "{\"ok\":\"fallback\"}" }] });
+    expect(meta.mode).toBe("context_session_fallback");
     expect(meta.toolSlug).toBe("unlisted_tool");
-    expect(meta.serverUrl).toBe("https://hinted.mcp");
-    expect(meta.warning).toContain("hint-session fallback");
+    expect(meta.serverUrl).toBe("https://context-session.mcp");
+    expect(meta.warning).toContain("workflow context session");
     expect(meta.warning).toContain("WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY");
   });
 
@@ -118,7 +118,7 @@ describe("callToolAcrossSessions", () => {
 
     const mcpClientCtor = vi.mocked(sdkServer.MCPClient);
 
-    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(
+    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-ctx")).rejects.toThrow(
       /Strict discovery is enabled/
     );
     expect(mcpClientCtor).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe("callToolAcrossSessions", () => {
     expect(meta.mode).toBe("listed_session");
   });
 
-  it("includes session + server URL when hint fallback fails", async () => {
+  it("includes session + server URL when context session fallback fails", async () => {
     const other = makeMockClient({
       serverUrl: "https://other.mcp",
       tools: ["something_else"],
@@ -165,22 +165,21 @@ describe("callToolAcrossSessions", () => {
       };
     } as any);
 
-    const hinted = makeMockClient({
-      serverUrl: "https://hinted.mcp",
+    const contextSessionClient = makeMockClient({
+      serverUrl: "https://context-session.mcp",
       tools: ["only_meta_tools"],
     });
-    hinted.connect.mockRejectedValueOnce(new Error("SSE error: Non-200 status code (404)"));
+    contextSessionClient.connect.mockRejectedValue(new Error("SSE error: Non-200 status code (404)"));
 
     vi.mocked(sdkServer.MCPClient).mockImplementation(function () {
-      return hinted;
+      return contextSessionClient;
     } as any);
 
-    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(
-      /session \"sess-hint\"/
-    );
-    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(
-      /https:\/\/hinted\.mcp/
-    );
-    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-hint")).rejects.toThrow(/404/);
+    const err = await callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-ctx").catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    const msg = (err as Error).message;
+    expect(msg).toMatch(/session "sess-ctx"/);
+    expect(msg).toMatch(/https:\/\/context-session\.mcp/);
+    expect(msg).toMatch(/404/);
   });
 });

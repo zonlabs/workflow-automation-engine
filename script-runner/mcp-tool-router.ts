@@ -28,7 +28,7 @@ export function sortClientsForToolSlug(clients: MCPClient[], toolSlug: string): 
 }
 
 export type ToolResolutionMeta = {
-  mode: "listed_session" | "hint_session_fallback";
+  mode: "listed_session" | "context_session_fallback";
   toolSlug: string;
   serverUrl?: string;
   warning?: string;
@@ -43,11 +43,16 @@ function formatToolCallError(err: unknown): string {
   }
 }
 
+/**
+ * Resolves `toolSlug` across all MCP sessions for `userId`.
+ * @param contextSessionId - `context.session_id` from the workflow run: used only when no session
+ *   advertises the tool via `listTools()` (see `context_session_fallback` in meta).
+ */
 export async function callToolAcrossSessions(
   userId: string,
   toolSlug: string,
   args: Record<string, unknown>,
-  hintSessionId?: string
+  contextSessionId?: string
 ): Promise<{ raw: unknown; meta: ToolResolutionMeta }> {
   const multi = new MultiSessionClient(userId);
   let lastAdvertisedFailure: { serverUrl?: string; message: string } | null = null;
@@ -90,24 +95,24 @@ export async function callToolAcrossSessions(
   if (strictDiscovery) {
     throw new Error(
       `No connected MCP session advertised tool "${toolSlug}" via listTools(). ` +
-        `Strict discovery is enabled (WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true), so hint-session fallback is disabled.`
+        `Strict discovery is enabled (WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true), so fallback using context.session_id is disabled.`
     );
   }
 
-  if (hintSessionId) {
-    const client = new MCPClient({ identity: userId, sessionId: hintSessionId });
-    const hintedUrl = client.getServerUrl() || undefined;
+  if (contextSessionId) {
+    const client = new MCPClient({ identity: userId, sessionId: contextSessionId });
+    const contextSessionUrl = client.getServerUrl() || undefined;
     try {
       try {
         await client.connect();
         return {
           raw: await client.callTool(toolSlug, args),
           meta: {
-            mode: "hint_session_fallback",
+            mode: "context_session_fallback",
             toolSlug,
-            serverUrl: hintedUrl,
+            serverUrl: contextSessionUrl,
             warning:
-              `Tool "${toolSlug}" was executed via hint-session fallback because no connected session advertised it via listTools(). ` +
+              `Tool "${toolSlug}" ran on the workflow context session because no connected session advertised it via listTools(). ` +
               `If this is unexpected, enable strict mode with WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true.`,
           },
         };
@@ -116,13 +121,13 @@ export async function callToolAcrossSessions(
           ? ` Last advertised-session failure: ${lastAdvertisedFailure.serverUrl ?? "<unknown url>"}: ${lastAdvertisedFailure.message}`
           : "";
         throw new Error(
-          `Hint-session fallback failed for tool "${toolSlug}" using session "${hintSessionId}" at ${hintedUrl ?? "<unknown url>"}: ` +
+          `Context session fallback failed for tool "${toolSlug}" using session "${contextSessionId}" at ${contextSessionUrl ?? "<unknown url>"}: ` +
             `${formatToolCallError(err)}.${advertisedNote}`
         );
       }
     } finally {
       try {
-        client.disconnect("script-runner-hint-fallback");
+        client.disconnect("script-runner-context-session-fallback");
       } catch {
         /* ignore */
       }

@@ -11,7 +11,7 @@ import { unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
 import { createMcpServer } from "./server";
 import { resolveUserIdFromRequest } from "./auth";
 import { runWithRequestContext } from "./request-context";
-import { MCPClient } from "@mcp-ts/sdk/server";
+import { callToolAcrossSessions } from "../script-runner/mcp-tool-router";
 import { generateText } from "ai";
 import { resolveModel } from "../src/lib/ai/provider-registry";
 import { getIssuer } from "./oauth/config";
@@ -85,24 +85,21 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
         return;
       }
       const userId = String(context?.user_id ?? "");
-      const sessionId = String(context?.session_id ?? "");
-      if (!userId || !sessionId) {
-        res.status(400).json({ error: "context.user_id and context.session_id are required" });
+      if (!userId) {
+        res.status(400).json({ error: "context.user_id is required" });
         return;
       }
-      const client = new MCPClient({ identity: userId, sessionId });
-      try {
-        await client.connect();
-        const raw = await client.callTool(tool_slug, args ?? {});
-        res.json({ output: unwrapMcpToolCallResult(raw) });
-      } finally {
-        try {
-          await client.disconnect("script-helper-tool");
-        } catch {}
-        try {
-          client.dispose();
-        } catch {}
-      }
+      const contextSessionId =
+        context?.session_id != null && String(context.session_id).trim()
+          ? String(context.session_id).trim()
+          : undefined;
+      const { raw, meta } = await callToolAcrossSessions(
+        userId,
+        String(tool_slug),
+        (args ?? {}) as Record<string, unknown>,
+        contextSessionId
+      );
+      res.json({ output: unwrapMcpToolCallResult(raw), meta });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "Tool call failed" });
     }

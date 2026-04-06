@@ -1,5 +1,5 @@
-import { MCPClient } from "@mcp-ts/sdk/server";
 import { unwrapMcpToolCallResult } from "@engine/src/lib/mcp-tool-output";
+import { callToolAcrossSessions } from "@engine/script-runner/mcp-tool-router";
 import { verifyScriptHelperAuth } from "@/lib/verify-script-helper-auth";
 
 export const runtime = "nodejs";
@@ -28,31 +28,16 @@ export async function POST(req: Request) {
       return Response.json({ error: "tool_slug is required" }, { status: 400 });
     }
     const userId = String(context?.user_id ?? "");
-    const sessionId = String(context?.session_id ?? "");
-    if (!userId || !sessionId) {
-      return Response.json(
-        { error: "context.user_id and context.session_id are required" },
-        { status: 400 }
-      );
+    if (!userId) {
+      return Response.json({ error: "context.user_id is required" }, { status: 400 });
     }
+    const contextSessionId =
+      context?.session_id != null && String(context.session_id).trim()
+        ? String(context.session_id).trim()
+        : undefined;
 
-    const client = new MCPClient({ identity: userId, sessionId });
-    try {
-      await client.connect();
-      const raw = await client.callTool(tool_slug, args);
-      return Response.json({ output: unwrapMcpToolCallResult(raw) });
-    } finally {
-      try {
-        await client.disconnect("script-helper-tool");
-      } catch {
-        /* ignore */
-      }
-      try {
-        client.dispose();
-      } catch {
-        /* ignore */
-      }
-    }
+    const { raw, meta } = await callToolAcrossSessions(userId, tool_slug, args, contextSessionId);
+    return Response.json({ output: unwrapMcpToolCallResult(raw), meta });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Tool call failed";
     try {

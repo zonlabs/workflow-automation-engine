@@ -318,7 +318,7 @@ async function handleToolCall(payload: any) {
   if (!userId) {
     throw new Error("context.user_id is required");
   }
-  const hintSessionId = context.session_id != null && String(context.session_id).trim()
+  const contextSessionId = context.session_id != null && String(context.session_id).trim()
     ? String(context.session_id).trim()
     : undefined;
 
@@ -326,7 +326,7 @@ async function handleToolCall(payload: any) {
     userId,
     toolSlug,
     (payload?.arguments ?? {}) as Record<string, unknown>,
-    hintSessionId
+    contextSessionId
   );
   return { output: unwrapMcpToolCallResult(raw), meta };
 }
