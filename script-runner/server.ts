@@ -30,6 +30,7 @@ function buildPythonScript() {
   return [
     "import json",
     "import inspect",
+    "import sys",
     "import urllib.request",
     "",
     "with open('input.json', 'r') as f:",
@@ -51,7 +52,11 @@ function buildPythonScript() {
     "    return parsed",
     "",
     "def run_tool(tool_slug, arguments):",
-    "    return _post('/tool', {'tool_slug': tool_slug, 'arguments': arguments, 'context': context}).get('output')",
+    "    resp = _post('/tool', {'tool_slug': tool_slug, 'arguments': arguments, 'context': context})",
+    "    meta = resp.get('meta') if isinstance(resp, dict) else None",
+    "    if isinstance(meta, dict) and meta.get('warning'):",
+    "        print(str(meta.get('warning')), file=sys.stderr)",
+    "    return resp.get('output') if isinstance(resp, dict) else None",
     "",
     "def tool_result_rows(output):",
     "    if output is None:",
@@ -317,13 +322,13 @@ async function handleToolCall(payload: any) {
     ? String(context.session_id).trim()
     : undefined;
 
-  const raw = await callToolAcrossSessions(
+  const { raw, meta } = await callToolAcrossSessions(
     userId,
     toolSlug,
     (payload?.arguments ?? {}) as Record<string, unknown>,
     hintSessionId
   );
-  return unwrapMcpToolCallResult(raw);
+  return { output: unwrapMcpToolCallResult(raw), meta };
 }
 
 async function handleLlmCall(payload: any) {
@@ -368,7 +373,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const payload = await readJsonBody(req, res);
       const output = await handleToolCall(payload);
-      jsonResponse(res, 200, { output });
+      jsonResponse(res, 200, output as any);
     } catch (err) {
       jsonResponse(res, 500, { error: err instanceof Error ? err.message : "Tool call failed" });
     }

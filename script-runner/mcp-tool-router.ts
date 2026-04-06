@@ -27,12 +27,19 @@ export function sortClientsForToolSlug(clients: MCPClient[], toolSlug: string): 
   });
 }
 
+export type ToolResolutionMeta = {
+  mode: "listed_session" | "hint_session_fallback";
+  toolSlug: string;
+  serverUrl?: string;
+  warning?: string;
+};
+
 export async function callToolAcrossSessions(
   userId: string,
   toolSlug: string,
   args: Record<string, unknown>,
   hintSessionId?: string
-): Promise<unknown> {
+): Promise<{ raw: unknown; meta: ToolResolutionMeta }> {
   const multi = new MultiSessionClient(userId);
   try {
     await multi.connect();
@@ -48,17 +55,43 @@ export async function callToolAcrossSessions(
       const names = listed?.tools ?? [];
       const has = names.some((t) => t?.name === toolSlug);
       if (!has) continue;
-      return await c.callTool(toolSlug, args);
+      return {
+        raw: await c.callTool(toolSlug, args),
+        meta: {
+          mode: "listed_session",
+          toolSlug,
+          serverUrl: c.getServerUrl() || undefined,
+        },
+      };
     }
   } finally {
     multi.disconnect();
+  }
+
+  const strictDiscovery =
+    String(process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY ?? "").trim().toLowerCase() === "true";
+  if (strictDiscovery) {
+    throw new Error(
+      `No connected MCP session advertised tool "${toolSlug}" via listTools(). ` +
+        `Strict discovery is enabled (WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true), so hint-session fallback is disabled.`
+    );
   }
 
   if (hintSessionId) {
     const client = new MCPClient({ identity: userId, sessionId: hintSessionId });
     try {
       await client.connect();
-      return await client.callTool(toolSlug, args);
+      return {
+        raw: await client.callTool(toolSlug, args),
+        meta: {
+          mode: "hint_session_fallback",
+          toolSlug,
+          serverUrl: client.getServerUrl() || undefined,
+          warning:
+            `Tool "${toolSlug}" was executed via hint-session fallback because no connected session advertised it via listTools(). ` +
+            `If this is unexpected, enable strict mode with WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true.`,
+        },
+      };
     } finally {
       try {
         client.disconnect("script-runner-hint-fallback");
