@@ -35,7 +35,13 @@ function formatRedirectDisplay(uri: string): string {
   try {
     const u = new URL(uri);
     const path = u.pathname === "/" ? "" : u.pathname;
-    return `${u.origin}${path}`;
+    const tail = `${path}${u.search}${u.hash}`;
+    // For http(s), origin is meaningful. For custom schemes (cursor://, vscode://, …)
+    // `URL#origin` is often the literal string "null", which would display as "null/…".
+    if (u.protocol === "http:" || u.protocol === "https:") {
+      return `${u.origin}${tail}`;
+    }
+    return u.href;
   } catch {
     return uri;
   }
@@ -50,6 +56,98 @@ export type AuthorizePageParams = {
   scope: string;
 };
 
+/**
+ * After consent, HTTP 302 to `cursor://` / other custom schemes often leaves embedded
+ * OAuth webviews stuck on a loading state. Return 200 + JS navigation + manual link instead.
+ */
+export function buildOauthNativeRedirectHtml(redirectUrl: string, appLabel: string): string {
+  const urlJs = JSON.stringify(redirectUrl);
+  const href = esc(redirectUrl);
+  const label = esc(appLabel.trim() || "the application");
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>Authorized · Workflow Engine</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #e8e8e8;
+      color: #171717;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      -webkit-font-smoothing: antialiased;
+    }
+    .card {
+      width: 100%;
+      max-width: 24rem;
+      background: #fff;
+      border: 1px solid #d4d4d4;
+      border-radius: 10px;
+      padding: 1.35rem 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      text-align: center;
+    }
+    h1 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem;
+      color: #0a0a0a;
+    }
+    p {
+      margin: 0 0 0.85rem;
+      font-size: 0.875rem;
+      line-height: 1.45;
+      color: #525252;
+    }
+    a {
+      color: #0a0a0a;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .ok {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 999px;
+      background: #ecfdf5;
+      color: #15803d;
+      font-size: 1.35rem;
+      margin: 0 auto 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="ok" aria-hidden="true">✓</div>
+    <h1>You're signed in</h1>
+    <p>Returning to <strong>${label}</strong>. If nothing happens, use the link below.</p>
+    <p><a href="${href}">Open ${label}</a></p>
+  </div>
+  <script>
+    (function () {
+      var u = ${urlJs};
+      function go() {
+        try { window.location.replace(u); } catch (e) {}
+      }
+      go();
+      setTimeout(go, 80);
+      setTimeout(go, 400);
+    })();
+  </script>
+</body>
+</html>`;
+}
+
 /** HTML for GET /oauth/authorize (shared by Express and Vercel). */
 export function buildOauthAuthorizeHtml(
   issuer: string,
@@ -61,7 +159,10 @@ export function buildOauthAuthorizeHtml(
   const logoBlock = buildAppLogoMarkup(client, appLabel);
   const redirectLabel = formatRedirectDisplay(p.redirect_uri);
   const checkSvg = `<svg class="perm-check" width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4.5 9.5L8 13l6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  const flowArrowSvg = `<svg class="flow-arrow" width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 9h10M9 5l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const flowConnector = `<div class="flow-lines" aria-hidden="true">
+    <div class="flow-line flow-line-out"></div>
+    <div class="flow-line flow-line-in"></div>
+  </div>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,23 +202,24 @@ export function buildOauthAuthorizeHtml(
     }
     .consent-identities {
       margin: 0 0 1rem;
-      padding: 0.5rem 0.6rem 0.55rem;
-      background: #fafafa;
-      border: 1px solid #ebebeb;
-      border-radius: 8px;
+      padding: 0.15rem 0 0.35rem;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
     }
     .consent-row {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: auto auto auto;
       align-items: center;
-      gap: 0.35rem 0.4rem;
+      justify-content: center;
+      gap: 0.25rem;
     }
     .party {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       min-width: 0;
-      flex: 1 1 7.5rem;
+      flex: 0 0 auto;
     }
     .party-logo {
       flex-shrink: 0;
@@ -149,23 +251,91 @@ export function buildOauthAuthorizeHtml(
       color: #8a8a8a;
       line-height: 1.15;
     }
-    .party-name {
-      font-size: 0.875rem;
+    .request-copy {
+      margin: 0.45rem 0 0;
+      font-size: 0.8rem;
+      color: #404040;
+      line-height: 1.35;
+    }
+    .request-copy strong {
+      color: #111827;
       font-weight: 600;
-      color: #0a0a0a;
-      letter-spacing: -0.015em;
-      line-height: 1.2;
-      margin: 0;
     }
     .flow-between {
       flex: 0 0 auto;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #c4c4c4;
-      padding: 0 0.1rem;
+      padding: 0 0.2rem;
     }
-    .flow-arrow { display: block; }
+    .flow-lines {
+      width: clamp(44px, 10vw, 72px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+    }
+    .flow-line {
+      position: relative;
+      width: 100%;
+      height: 2px;
+      border-radius: 999px;
+      background: transparent;
+      overflow: hidden;
+    }
+    .flow-line::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.95;
+      background-repeat: no-repeat;
+    }
+    .flow-line-out::before {
+      background-image: linear-gradient(
+        90deg,
+        rgba(37, 99, 235, 0) 0%,
+        rgba(37, 99, 235, 0.96) 18%,
+        rgba(37, 99, 235, 0.96) 82%,
+        rgba(37, 99, 235, 0) 100%
+      );
+      background-size: 52px 100%;
+      filter: drop-shadow(0 0 8px rgba(37, 99, 235, 0.28));
+      animation: flow-single-ltr 1.35s linear infinite;
+    }
+    .flow-line-in::before {
+      background-image: linear-gradient(
+        90deg,
+        rgba(22, 163, 74, 0) 0%,
+        rgba(22, 163, 74, 0.96) 18%,
+        rgba(22, 163, 74, 0.96) 82%,
+        rgba(22, 163, 74, 0) 100%
+      );
+      background-size: 52px 100%;
+      filter: drop-shadow(0 0 8px rgba(22, 163, 74, 0.28));
+      animation: flow-single-rtl 1.35s linear infinite;
+    }
+    @keyframes flow-single-ltr {
+      from { background-position-x: -60px; }
+      to { background-position-x: 130px; }
+    }
+    @keyframes flow-single-rtl {
+      from { background-position-x: 130px; }
+      to { background-position-x: -60px; }
+    }
+    @media (max-width: 560px) {
+      .consent-row {
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: stretch;
+        gap: 0.5rem;
+      }
+      .flow-between {
+        justify-content: flex-start;
+        padding-left: 40px;
+      }
+      .flow-lines {
+        width: min(150px, 62vw);
+      }
+    }
     .app-logo-box {
       display: flex;
       align-items: center;
@@ -277,8 +447,8 @@ export function buildOauthAuthorizeHtml(
     }
     textarea:focus {
       outline: none;
-      border-color: #0a0a0a;
-      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
+      border-color: #cbd5e1;
+      box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.22);
     }
     textarea::placeholder { color: #a3a3a3; }
     .actions {
@@ -315,6 +485,32 @@ export function buildOauthAuthorizeHtml(
       transition: background 0.12s, border-color 0.12s;
     }
     .btn-submit:hover { background: #262626; border-color: #262626; }
+    .btn-submit[disabled] {
+      background: #525252;
+      border-color: #525252;
+      cursor: progress;
+      opacity: 0.95;
+    }
+    .btn-submit-inner {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .btn-spinner {
+      width: 0.85rem;
+      height: 0.85rem;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-top-color: #ffffff;
+      display: none;
+      animation: spin 0.85s linear infinite;
+    }
+    .btn-submit.is-loading .btn-spinner { display: inline-block; }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     .fineprint {
       margin-top: 1rem;
       font-size: 0.6875rem;
@@ -339,29 +535,22 @@ export function buildOauthAuthorizeHtml(
         <div class="consent-row">
           <div class="party">
             <div class="party-logo" aria-hidden="true">${ENGINE_BRAND_SVG}</div>
-            <div class="party-meta">
-              <span class="party-kicker">Authorization server</span>
-              <p class="party-name">Workflow Engine</p>
-            </div>
           </div>
-          <div class="flow-between" aria-hidden="true">${flowArrowSvg}</div>
+          <div class="flow-between">${flowConnector}</div>
           <div class="party">
             ${logoBlock}
-            <div class="party-meta">
-              <span class="party-kicker">Application</span>
-              <p class="party-name">${esc(appLabel)}</p>
-            </div>
           </div>
         </div>
+        <p class="request-copy"><strong>${esc(appLabel)}</strong> is requesting access to <strong>Workflow Engine</strong>.</p>
         <p class="redirect">Returns to <code>${esc(redirectLabel)}</code></p>
       </div>
-      <p class="access-preface">${esc(appLabel)} is requesting:</p>
+      <p class="access-preface">Requested permissions:</p>
       <ul class="perms">
         <li>${checkSvg}<span>Full access to your workflows, schedules, and execution history for this account</span></li>
         <li>${checkSvg}<span>Allow the application to run workflows using credentials you provide below</span></li>
       </ul>
       <p class="hint">Get an API key at <a href="https://mcp-assistant.in/settings/api-keys" target="_blank" rel="noopener noreferrer">mcp-assistant.in/settings/api-keys</a>. Paste a <strong>workflow API key</strong> (<code>wfmcp_…</code>) or your <strong>signed-in session access token</strong> (JWT).</p>
-      <form method="post" action="${esc(action)}">
+      <form method="post" action="${esc(action)}" id="oauth-authorize-form">
         <input type="hidden" name="response_type" value="code" />
         <input type="hidden" name="client_id" value="${esc(p.client_id)}" />
         <input type="hidden" name="redirect_uri" value="${esc(p.redirect_uri)}" />
@@ -373,12 +562,33 @@ export function buildOauthAuthorizeHtml(
         <textarea id="user_access_token" name="user_access_token" required autocomplete="off" spellcheck="false" placeholder="wfmcp_… or eyJhbGciOiJIUzI1NiIs…"></textarea>
         <div class="actions">
           <button type="button" class="btn-cancel" onclick="if (history.length > 1) history.back(); else window.close();">Cancel</button>
-          <button type="submit" class="btn-submit">Authorize</button>
+          <button type="submit" class="btn-submit" id="oauth-authorize-submit">
+            <span class="btn-submit-inner">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span class="btn-submit-label">Authorize</span>
+            </span>
+          </button>
         </div>
       </form>
     </div>
-    <p class="fineprint">You can create or revoke workflow API keys anytime at <a href="https://mcp-assistant.in/settings/api-keys" target="_blank" rel="noopener noreferrer">mcp-assistant.in/settings/api-keys</a>.</p>
+    <p class="fineprint">You can create or revoke API keys anytime at <a href="https://mcp-assistant.in/settings/api-keys" target="_blank" rel="noopener noreferrer">mcp-assistant.in/settings/api-keys</a>.</p>
   </div>
+  <script>
+    (function () {
+      var form = document.getElementById("oauth-authorize-form");
+      var submit = document.getElementById("oauth-authorize-submit");
+      if (!form || !submit) return;
+      form.addEventListener("submit", function () {
+        if (!(submit instanceof HTMLButtonElement)) return;
+        if (submit.disabled) return;
+        submit.disabled = true;
+        submit.classList.add("is-loading");
+        submit.setAttribute("aria-busy", "true");
+        var label = submit.querySelector(".btn-submit-label");
+        if (label) label.textContent = "Authorizing...";
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }

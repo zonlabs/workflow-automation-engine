@@ -4,8 +4,8 @@ import { resolveSupabaseUserIdFromCredential } from "../auth";
 import { sealAuthCode, openAuthCode } from "./auth-code";
 import { verifyPkceChallenge } from "./pkce";
 import { getClient, registerClient } from "./registry";
-import { isAllowedRedirectUri } from "./redirect-uri";
-import { buildOauthAuthorizeHtml } from "./authorize-page";
+import { describeRedirectUriPolicyForError, isAllowedRedirectUri } from "./redirect-uri";
+import { buildOauthAuthorizeHtml, buildOauthNativeRedirectHtml } from "./authorize-page";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 
@@ -78,7 +78,7 @@ export function mountWorkflowOAuth(app: Application): void {
           res,
           {
             error: "invalid_redirect_uri",
-            error_description: `Invalid redirect URI: ${uri}`,
+            error_description: `Invalid redirect URI: ${uri}. Allowed: ${describeRedirectUriPolicyForError()}`,
           },
           400
         );
@@ -220,7 +220,21 @@ export function mountWorkflowOAuth(app: Application): void {
     const u = new URL(redirect_uri);
     u.searchParams.set("code", code);
     if (state) u.searchParams.set("state", state);
-    res.redirect(u.toString());
+    const finalUrl = u.toString();
+
+    try {
+      const ru = new URL(redirect_uri);
+      if (ru.protocol !== "http:" && ru.protocol !== "https:") {
+        const appLabel = client.clientName?.trim() || "your application";
+        res.setHeader("Cache-Control", "no-store");
+        res.status(200).type("html").send(buildOauthNativeRedirectHtml(finalUrl, appLabel));
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+
+    res.redirect(finalUrl);
   });
 
   app.post("/oauth/token", (req: Request, res: Response) => {

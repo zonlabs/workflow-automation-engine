@@ -7,8 +7,8 @@ import { resolveSupabaseUserIdFromCredential } from "../auth";
 import { sealAuthCode, openAuthCode } from "./auth-code";
 import { verifyPkceChallenge } from "./pkce";
 import { getClient, registerClient } from "./registry";
-import { isAllowedRedirectUri } from "./redirect-uri";
-import { buildOauthAuthorizeHtml } from "./authorize-page";
+import { describeRedirectUriPolicyForError, isAllowedRedirectUri } from "./redirect-uri";
+import { buildOauthAuthorizeHtml, buildOauthNativeRedirectHtml } from "./authorize-page";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 
@@ -84,7 +84,7 @@ export async function oauthRegisterPost(body: unknown): Promise<Response> {
       return corsJson(
         {
           error: "invalid_redirect_uri",
-          error_description: `Invalid redirect URI: ${uri}`,
+          error_description: `Invalid redirect URI: ${uri}. Allowed: ${describeRedirectUriPolicyForError()}`,
         },
         400
       );
@@ -224,7 +224,28 @@ export async function oauthAuthorizePost(form: Record<string, string>): Promise<
   const u = new URL(redirect_uri);
   u.searchParams.set("code", code);
   if (state) u.searchParams.set("state", state);
-  return Response.redirect(u.toString(), 302);
+  const finalUrl = u.toString();
+
+  // Custom-scheme redirects (cursor://, vscode://, …): 302 often does not close embedded
+  // OAuth UIs; return a success page that navigates via JS + offers a manual link.
+  try {
+    const ru = new URL(redirect_uri);
+    if (ru.protocol !== "http:" && ru.protocol !== "https:") {
+      const appLabel = client.clientName?.trim() || "your application";
+      const html = buildOauthNativeRedirectHtml(finalUrl, appLabel);
+      return new Response(html, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+  } catch {
+    /* fall through to redirect */
+  }
+
+  return Response.redirect(finalUrl, 302);
 }
 
 export async function oauthTokenPost(params: Record<string, string>): Promise<Response> {
