@@ -50,6 +50,47 @@ export const workflowMcpHandler = withMcpAuth(mcpCore, verifyToken, {
   ...(authResourceBase ? { resourceUrl: authResourceBase } : {}),
 });
 
+function resolveResourceMetadataUrl(req: Request): string {
+  const base = authResourceBase ?? `${new URL(req.url).origin}/api/mcp`;
+  return `${base}${resourceMetadataPath}`;
+}
+
+/**
+ * Cursor compatibility: always expose a canonical OAuth challenge on missing auth.
+ * Some clients only trigger OAuth when `realm="OAuth"` is present.
+ */
+export async function handleWorkflowMcpRequest(req: Request): Promise<Response> {
+  const res = await workflowMcpHandler(req);
+  const authHeader = req.headers.get("authorization");
+  const isMissingAuth = !authHeader || !authHeader.trim();
+  if (!isMissingAuth || res.status !== 401) return res;
+
+  const next = new Headers(res.headers);
+  const currentChallenge = next.get("www-authenticate") ?? "";
+  if (!currentChallenge.includes("resource_metadata=")) {
+    next.set(
+      "WWW-Authenticate",
+      `Bearer realm="OAuth", resource_metadata="${resolveResourceMetadataUrl(req)}"`
+    );
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: next,
+    });
+  }
+
+  if (!/realm\s*=/.test(currentChallenge)) {
+    next.set("WWW-Authenticate", `Bearer realm="OAuth", ${currentChallenge.slice("Bearer ".length)}`);
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: next,
+    });
+  }
+
+  return res;
+}
+
 /** Normalize trailing slash so pathname is exactly `/api/mcp`. */
 export function normalizeRequestUrl(req: Request): Request {
   const url = new URL(req.url);

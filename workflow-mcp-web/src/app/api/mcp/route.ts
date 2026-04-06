@@ -1,6 +1,6 @@
 import {
+  handleWorkflowMcpRequest,
   normalizeRequestUrl,
-  workflowMcpHandler,
 } from "@/lib/workflow-mcp-handler";
 
 export const runtime = "nodejs";
@@ -23,13 +23,13 @@ export async function OPTIONS() {
 }
 
 export async function GET(req: Request) {
-  return workflowMcpHandler(normalizeRequestUrl(req));
+  return handleWorkflowMcpRequest(normalizeRequestUrl(req));
 }
 
 export async function POST(req: Request) {
-  return workflowMcpHandler(normalizeRequestUrl(req));
+  return handleWorkflowMcpRequest(normalizeRequestUrl(req));
 }
 
 export async function DELETE(req: Request) {
-  return workflowMcpHandler(normalizeRequestUrl(req));
+  return handleWorkflowMcpRequest(normalizeRequestUrl(req));
 }
