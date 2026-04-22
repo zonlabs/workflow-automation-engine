@@ -124,8 +124,15 @@ export async function callToolAcrossSessions(
 
       const serverUrl = client.getServerUrl() || undefined;
       try {
+        const raw = await client.callTool(toolSlug, args);
+        console.log("[tool-router] Tool resolved via advertised session", {
+          userId,
+          toolSlug,
+          sessionId: typeof client.getSessionId === "function" ? client.getSessionId() : undefined,
+          serverUrl,
+        });
         return {
-          raw: await client.callTool(toolSlug, args),
+          raw,
           meta: {
             mode: "listed_session",
             toolSlug,
@@ -133,6 +140,12 @@ export async function callToolAcrossSessions(
           },
         };
       } catch (err) {
+        console.warn("[tool-router] Advertised session tool call failed", {
+          toolSlug,
+          serverUrl,
+          sessionId: typeof client.getSessionId === "function" ? client.getSessionId() : undefined,
+          error: formatToolCallError(err),
+        });
         lastAdvertisedFailure = { serverUrl, message: formatToolCallError(err) };
         continue; // Try next advertised session if this one failed
       }
@@ -156,6 +169,14 @@ export async function callToolAcrossSessions(
         }
 
         const result = await client.callTool("mcp_execute_tool", proxyArgs);
+        console.log("[tool-router] Tool resolved via meta-tool proxy", {
+          userId,
+          toolSlug,
+          sessionId: typeof client.getSessionId === "function" ? client.getSessionId() : undefined,
+          serverUrl,
+          proxyServerName,
+          serverNameHint: serverNameHint ?? null,
+        });
         return {
           raw: result,
           meta: {
@@ -167,6 +188,13 @@ export async function callToolAcrossSessions(
         };
       } catch (err) {
         const msg = formatToolCallError(err);
+        console.warn("[tool-router] Meta-tool proxy attempt failed", {
+          toolSlug,
+          serverUrl,
+          proxyServerName,
+          sessionId: typeof client.getSessionId === "function" ? client.getSessionId() : undefined,
+          error: msg,
+        });
         if (msg.includes("not found")) continue; // Try next proxy session
         continue; // Other error, try next proxy session
       }
@@ -177,6 +205,11 @@ export async function callToolAcrossSessions(
 
   const strictDiscovery = isStrictToolDiscoveryEnabled();
   if (strictDiscovery) {
+    console.error("[tool-router] Strict discovery blocked fallback", {
+      userId,
+      toolSlug,
+      contextSessionId: contextSessionId ?? null,
+    });
     throw new Error(
       `No connected MCP session advertised tool "${toolSlug}" via listTools(). ` +
         `Strict discovery is enabled by default, so fallback using context.session_id is disabled. ` +
@@ -189,6 +222,12 @@ export async function callToolAcrossSessions(
     const contextSessionUrl = client.getServerUrl() || undefined;
     try {
       try {
+        console.warn("[tool-router] Using legacy context-session fallback", {
+          userId,
+          toolSlug,
+          contextSessionId,
+          contextSessionUrl: contextSessionUrl ?? null,
+        });
         await client.connect();
         return {
           raw: await client.callTool(toolSlug, args),
@@ -205,6 +244,14 @@ export async function callToolAcrossSessions(
         const advertisedNote = lastAdvertisedFailure
           ? ` Last advertised-session failure: ${lastAdvertisedFailure.serverUrl ?? "<unknown url>"}: ${lastAdvertisedFailure.message}`
           : "";
+        console.error("[tool-router] Context-session fallback failed", {
+          userId,
+          toolSlug,
+          contextSessionId,
+          contextSessionUrl: contextSessionUrl ?? null,
+          error: formatToolCallError(err),
+          advertisedFailure: lastAdvertisedFailure,
+        });
         throw new Error(
           `Context session fallback failed for tool "${toolSlug}" using session "${contextSessionId}" at ${contextSessionUrl ?? "<unknown url>"}: ` +
             `${formatToolCallError(err)}.${advertisedNote}`
@@ -225,12 +272,21 @@ export async function callToolAcrossSessions(
   }
 
   if (lastAdvertisedFailure) {
+    console.error("[tool-router] Tool advertised but execution failed on all candidate sessions", {
+      userId,
+      toolSlug,
+      lastAdvertisedFailure,
+    });
     throw new Error(
       `Tool "${toolSlug}" was advertised but failed to execute at ${lastAdvertisedFailure.serverUrl ?? "<unknown url>"}: ` +
         `${lastAdvertisedFailure.message}`
     );
   }
 
+  console.error("[tool-router] No connected MCP session exposes requested tool", {
+    userId,
+    toolSlug,
+  });
   throw new Error(
     `No connected MCP session exposes tool "${toolSlug}". ` +
       `Connect the server that provides this tool (e.g. Zapier) in the same account.`

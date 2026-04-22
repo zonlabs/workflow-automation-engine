@@ -1,21 +1,10 @@
 import { JobsOptions, Queue } from "bullmq";
 import { getSharedRedisConnection } from "./redis";
+import type { WorkflowJobData, WorkflowTriggeredBy } from "../domain/workflow";
+export type { WorkflowJobData, WorkflowTriggeredBy } from "../domain/workflow";
 
 export const WORKFLOW_QUEUE_NAME = "workflow-executions";
 export const SCHEDULER_QUEUE_NAME = "workflow-scheduler";
-
-export type WorkflowTriggeredBy = "scheduler" | "manual" | "webhook";
-
-export interface WorkflowJobData {
-  workflowId: string;
-  scheduledWorkflowId: string;
-  executionLogId: string;
-  userId: string;
-  sessionId: string;
-  triggeredBy: WorkflowTriggeredBy;
-  params: Record<string, unknown>;
-  attempt?: number;
-}
 
 const defaultAttempts = Number(process.env.WORKER_MAX_ATTEMPTS ?? "3");
 const defaultBackoffDelay = Number(process.env.WORKER_BACKOFF_DELAY ?? "5000");

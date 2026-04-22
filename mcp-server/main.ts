@@ -7,13 +7,10 @@ import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { extractMcpToolErrorMessage, unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
+import { serviceRegistry } from "../src/application/service-registry";
 import { createMcpServer } from "./server";
 import { resolveUserIdFromRequest } from "./auth";
 import { runWithRequestContext } from "./request-context";
-import { callToolAcrossSessions } from "../script-runner/mcp-tool-router";
-import { generateText } from "ai";
-import { resolveModel } from "../src/lib/ai/provider-registry";
 import { getIssuer } from "./oauth/config";
 import { mountWorkflowOAuth } from "./oauth/mount";
 
@@ -32,6 +29,18 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
     process.env.WORKFLOW_MCP_RESOURCE_URL ?? `http://localhost:${port}/mcp`;
   const resourceDocUrl = process.env.WORKFLOW_MCP_RESOURCE_DOC_URL ?? resourceUrl;
   const issuer = getIssuer();
+
+  console.log("[mcp-server] Starting streamable HTTP server", {
+    port,
+    resourceUrl,
+    issuer,
+    helperTokenConfigured: !!helperToken,
+    workflowScriptRunnerMode: process.env.WORKFLOW_SCRIPT_RUNNER_MODE ?? "local",
+    workflowScriptRunnerUrl: process.env.WORKFLOW_SCRIPT_RUNNER_URL ?? null,
+    workflowScriptHelperUrl: process.env.WORKFLOW_SCRIPT_HELPER_URL ?? null,
+    strictToolDiscovery: process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY ?? null,
+    allowContextSessionFallback: process.env.WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK ?? null,
+  });
 
   const resourceMetadataUrlValue = `${resourceUrl.replace(/\/$/, "")}/.well-known/oauth-protected-resource`;
 
@@ -80,39 +89,24 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
     if (!requireHelperAuth(req, res)) return;
     try {
       const { tool_slug, arguments: args, context, server_name } = req.body ?? {};
-      if (!tool_slug) {
-        res.status(400).json({ error: "tool_slug is required" });
-        return;
-      }
-      const userId = String(context?.user_id ?? "");
-      if (!userId) {
-        res.status(400).json({ error: "context.user_id is required" });
-        return;
-      }
-      const contextSessionId =
-        context?.session_id != null && String(context.session_id).trim()
-          ? String(context.session_id).trim()
-          : undefined;
-      const serverNameHint =
-        server_name != null && String(server_name).trim()
-          ? String(server_name).trim()
-          : undefined;
-      const { raw, meta } = await callToolAcrossSessions(
-        userId,
-        String(tool_slug),
-        (args ?? {}) as Record<string, unknown>,
-        contextSessionId,
-        serverNameHint
-      );
-
-      const toolErrorMessage = extractMcpToolErrorMessage(raw);
-      if (toolErrorMessage) {
-        res.status(500).json({ error: `Tool "${String(tool_slug)}" failed: ${toolErrorMessage}` });
-        return;
-      }
-
-      res.json({ output: unwrapMcpToolCallResult(raw), meta });
+      console.log("[mcp-server] Received script-helper tool request", {
+        toolSlug: tool_slug ?? null,
+        userId: context?.user_id ?? null,
+        contextSessionId: context?.session_id ?? null,
+        serverNameHint: server_name ?? null,
+        argumentKeys: Object.keys((args ?? {}) as Record<string, unknown>),
+      });
+      const result = await serviceRegistry.scriptHelperService.handleToolCall(req.body ?? {});
+      console.log("[mcp-server] Script-helper tool request completed", {
+        toolSlug: String(tool_slug ?? ""),
+        userId: context?.user_id ?? null,
+        resolutionMode: result.meta.mode,
+        serverUrl: result.meta.serverUrl ?? null,
+        serverName: result.meta.serverName ?? null,
+      });
+      res.json(result);
     } catch (err) {
+      console.error("[mcp-server] Script-helper tool request failed", err);
       res.status(500).json({ error: err instanceof Error ? err.message : "Tool call failed" });
     }
   });
@@ -120,14 +114,8 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
   app.post("/script-helper/llm", async (req: Request, res: Response) => {
     if (!requireHelperAuth(req, res)) return;
     try {
-      const { prompt, model } = req.body ?? {};
-      if (!prompt) {
-        res.status(400).json({ error: "prompt is required" });
-        return;
-      }
-      const { model: resolved } = resolveModel(String(model ?? ""));
-      const result = await generateText({ model: resolved, prompt: String(prompt), maxRetries: 2 });
-      res.json({ output: result.text });
+      const output = await serviceRegistry.scriptHelperService.handleLlmCall(req.body ?? {});
+      res.json({ output });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "LLM call failed" });
     }

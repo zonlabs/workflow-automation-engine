@@ -88,6 +88,13 @@ This project is a **workflow automation engine** that allows users to:
 
 ## Tech Stack
 
+The runtime is organized into four internal layers:
+
+- `src/domain` - workflow, schedule, execution, and error types
+- `src/application` - orchestration services for execution, scheduling, MCP tools, and script helpers
+- `src/infrastructure` - Supabase, BullMQ, Redis, and MCP session adapters
+- `mcp-server` / `workers` / `script-runner` / `workflow-mcp-web` - transport and host-specific entrypoints
+
 - **Runtime:** Node.js 18+
 - **Language:** TypeScript
 - **Job Queue:** BullMQ (with Redis)
@@ -118,6 +125,14 @@ workflow-automation-engine/
 ├── tsconfig.json                # TypeScript configuration
 └── README.md                    # This file
 ```
+
+Current source of truth for the refactored runtime:
+
+- `src/application/workflow/workflow-execution-service.ts` - workflow orchestration
+- `src/application/scheduling/execution-enqueue-service.ts` - shared manual + scheduled enqueue path
+- `src/application/mcp/workflow-tool-service.ts` - MCP-facing workflow and execution-log services
+- `src/infrastructure/supabase/*` - database repositories
+- `workers/workflow-worker.ts` / `workers/scheduler.ts` - thin BullMQ entrypoints
 
 ## Database Schema
 
@@ -512,13 +527,14 @@ When working with this codebase:
    - Workflows are stored as JSON in Supabase
    - Scheduler checks every 60 seconds
    - Worker processes jobs from BullMQ queue
-   - MCP executor handles tool calls
+   - Application services orchestrate execution, scheduling, MCP tools, and helper calls
 
 2. **Key Files to Modify:**
-   - `lib/workflow-executor.ts` - Core logic for step execution
-   - `lib/mcp-executor.ts` - MCP integration
-   - `workers/workflow-worker.ts` - Job processing
-   - `workers/scheduler.ts` - Scheduling logic
+   - `src/application/workflow/workflow-execution-service.ts` - workflow orchestration
+   - `src/application/scheduling/execution-enqueue-service.ts` - shared enqueue path
+   - `src/application/mcp/workflow-tool-service.ts` - MCP-facing workflow and execution-log logic
+   - `src/infrastructure/supabase/*` - repository boundaries
+   - `workers/workflow-worker.ts` / `workers/scheduler.ts` - thin transport entrypoints
 
 3. **Variable Resolution Pattern:**
    - `{{params.xxx}}` → Gets from input params

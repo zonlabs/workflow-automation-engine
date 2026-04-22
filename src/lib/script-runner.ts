@@ -184,6 +184,18 @@ async function runViaVercelSandbox(payload: ScriptRunPayload): Promise<ScriptRun
     ...vercelCreds,
   });
 
+  console.log("[workflow-script-runner] Starting Vercel sandbox execution", {
+    workflowId: payload.workflowId,
+    executionLogId: payload.executionLogId,
+    userId: payload.userId,
+    sessionId: payload.sessionId,
+    triggeredBy: payload.triggeredBy,
+    language,
+    runtime,
+    timeout,
+    helperUrl,
+  });
+
   try {
     const inputPayload = {
       params: payload.params,
@@ -224,6 +236,14 @@ async function runViaVercelSandbox(payload: ScriptRunPayload): Promise<ScriptRun
       ? JSON.parse(outputBuffer.toString("utf8")).output
       : null;
 
+    console.log("[workflow-script-runner] Vercel sandbox execution completed", {
+      workflowId: payload.workflowId,
+      executionLogId: payload.executionLogId,
+      stdoutLength: stdout.length,
+      stderrLength: stderr.length,
+      hasOutput: output != null,
+    });
+
     return {
       output,
       logs: { stdout, stderr },
@@ -246,6 +266,12 @@ export async function runScriptWorkflow(
     throw new Error("WORKFLOW_SCRIPT_RUNNER_URL is not configured");
   }
 
+  console.log("[workflow-script-runner] Dispatching workflow to local script-runner", {
+    workflowId: payload.workflowId,
+    executionLogId: payload.executionLogId,
+    runnerUrl,
+  });
+
   const res = await fetch(`${runnerUrl}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -265,9 +291,21 @@ export async function runScriptWorkflow(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error("[workflow-script-runner] Local script-runner request failed", {
+      workflowId: payload.workflowId,
+      executionLogId: payload.executionLogId,
+      status: res.status,
+      responseText: text.slice(0, 200),
+    });
     throw new Error(`Script runner returned ${res.status}: ${text.slice(0, 200)}`);
   }
 
   const data = (await res.json()) as ScriptRunResult;
+  console.log("[workflow-script-runner] Local script-runner request completed", {
+    workflowId: payload.workflowId,
+    executionLogId: payload.executionLogId,
+    hasOutput: data.output != null,
+    hasLogs: data.logs != null,
+  });
   return data;
 }

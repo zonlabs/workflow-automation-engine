@@ -4,11 +4,8 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "fs
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawn } from "child_process";
-import { generateText } from "ai";
-import { resolveModel } from "../src/lib/ai/provider-registry";
+import { serviceRegistry } from "../src/application/service-registry";
 import { buildLocalNodeRunnerFile } from "../src/lib/workflow-node-script-bootstrap";
-import { extractMcpToolErrorMessage, unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
-import { callToolAcrossSessions } from "./mcp-tool-router";
 
 type RunRequest = {
   script_code: string;
@@ -312,53 +309,6 @@ async function readJsonBody(req: http.IncomingMessage, res: http.ServerResponse)
   });
 }
 
-async function handleToolCall(payload: any) {
-  const toolSlug = String(payload?.tool_slug ?? "");
-  if (!toolSlug) throw new Error("tool_slug is required");
-  const context = (payload?.context ?? {}) as Record<string, unknown>;
-  const userId = String(context.user_id ?? "");
-  if (!userId) {
-    throw new Error("context.user_id is required");
-  }
-  const contextSessionId = context.session_id != null && String(context.session_id).trim()
-    ? String(context.session_id).trim()
-    : undefined;
-  const serverNameHint = payload?.server_name != null && String(payload.server_name).trim()
-    ? String(payload.server_name).trim()
-    : undefined;
-
-  const { raw, meta } = await callToolAcrossSessions(
-    userId,
-    toolSlug,
-    (payload?.arguments ?? {}) as Record<string, unknown>,
-    contextSessionId,
-    serverNameHint
-  );
-
-  const toolErrorMessage = extractMcpToolErrorMessage(raw);
-  if (toolErrorMessage) {
-    throw new Error(`Tool "${toolSlug}" failed: ${toolErrorMessage}`);
-  }
-
-  return { output: unwrapMcpToolCallResult(raw), meta };
-}
-
-async function handleLlmCall(payload: any) {
-  const prompt = String(payload?.prompt ?? "");
-  if (!prompt) throw new Error("prompt is required");
-
-  const modelSlug = String(payload?.model ?? "");
-  const { model } = resolveModel(modelSlug);
-
-  const result = await generateText({
-    model,
-    prompt,
-    maxRetries: 2,
-  });
-
-  return result.text;
-}
-
 async function runShellCommand(command: string): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve, reject) => {
     const isWin = process.platform === "win32";
@@ -384,9 +334,10 @@ const server = http.createServer(async (req, res) => {
   if (req.url === "/tool") {
     try {
       const payload = await readJsonBody(req, res);
-      const output = await handleToolCall(payload);
+      const output = await serviceRegistry.scriptHelperService.handleToolCall(payload);
       jsonResponse(res, 200, output as any);
     } catch (err) {
+      console.error("[script-runner] Tool helper request failed", err);
       jsonResponse(res, 500, { error: err instanceof Error ? err.message : "Tool call failed" });
     }
     return;
@@ -395,9 +346,10 @@ const server = http.createServer(async (req, res) => {
   if (req.url === "/llm") {
     try {
       const payload = await readJsonBody(req, res);
-      const output = await handleLlmCall(payload);
+      const output = await serviceRegistry.scriptHelperService.handleLlmCall(payload);
       jsonResponse(res, 200, { output });
     } catch (err) {
+      console.error("[script-runner] LLM helper request failed", err);
       jsonResponse(res, 500, { error: err instanceof Error ? err.message : "LLM call failed" });
     }
     return;
@@ -414,6 +366,7 @@ const server = http.createServer(async (req, res) => {
       const output = await runShellCommand(command);
       jsonResponse(res, 200, { output });
     } catch (err) {
+      console.error("[script-runner] Bash helper request failed", err);
       jsonResponse(res, 500, { error: err instanceof Error ? err.message : "Bash command failed" });
     }
     return;
@@ -433,6 +386,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     const language = detectLanguage(payload.script_code, payload.script_runtime);
+    console.log("[script-runner] Starting script execution", {
+      language,
+      timeoutMs,
+      workflowId: payload.context?.workflow_id ?? null,
+      executionLogId: payload.context?.execution_log_id ?? null,
+      userId: payload.context?.user_id ?? null,
+      sessionId: payload.context?.session_id ?? null,
+      runnerMode: "local",
+    });
     const runnerPayload = {
       params: payload.params ?? {},
       context: payload.context ?? {},
@@ -442,12 +404,21 @@ const server = http.createServer(async (req, res) => {
       language === "node"
         ? await runNodeScript(payload.script_code, runnerPayload, timeoutMs)
         : await runPythonScript(payload.script_code, runnerPayload, timeoutMs);
+    console.log("[script-runner] Script execution completed", {
+      language,
+      workflowId: payload.context?.workflow_id ?? null,
+      executionLogId: payload.context?.execution_log_id ?? null,
+      stdoutLength: result.stdout.length,
+      stderrLength: result.stderr.length,
+      hasOutput: result.output != null,
+    });
     jsonResponse(res, 200, {
       output: result.output,
       logs: { stdout: result.stdout, stderr: result.stderr },
       artifacts: null,
     });
   } catch (err) {
+    console.error("[script-runner] Script execution failed", err);
     jsonResponse(res, 500, {
       error: err instanceof Error ? err.message : "Script execution failed",
     });
@@ -456,4 +427,11 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, () => {
   console.log(`[script-runner] listening on port ${port}`);
+  console.log("[script-runner] Effective runtime config", {
+    workflowScriptRunnerMode: process.env.WORKFLOW_SCRIPT_RUNNER_MODE ?? "local",
+    workflowScriptRunnerUrl: process.env.WORKFLOW_SCRIPT_RUNNER_URL ?? null,
+    workflowScriptHelperUrl: process.env.WORKFLOW_SCRIPT_HELPER_URL ?? null,
+    strictToolDiscovery: process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY ?? null,
+    allowContextSessionFallback: process.env.WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK ?? null,
+  });
 });
