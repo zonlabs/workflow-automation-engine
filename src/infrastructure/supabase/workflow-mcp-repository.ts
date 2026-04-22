@@ -5,7 +5,7 @@ export class WorkflowMcpRepository {
   async listWorkflows(userId: string, limit: number) {
     const { data, error } = await supabase
       .from("workflows")
-      .select("id, name, description, is_active, created_at, workflow_steps(toolkit), scheduled_workflows(id)")
+      .select("id, name, description, is_active, created_at, toolkit_ids, script_code, scheduled_workflows(id)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -20,7 +20,8 @@ export class WorkflowMcpRepository {
       description: string | null;
       is_active: boolean;
       created_at: string;
-      workflow_steps: Array<{ toolkit: string }>;
+      toolkit_ids: string[] | null;
+      script_code: string | null;
       scheduled_workflows: Array<{ id: string }>;
     }>;
   }
@@ -176,8 +177,7 @@ export class WorkflowMcpRepository {
       .from("workflows")
       .select(
         `id, name, description, is_active, created_at, input_schema, output_schema, script_code, defaults_for_required_parameters,
-         script_runtime,
-         workflow_steps(id, step_number, name, description, toolkit, tool_slug, tool_arguments, depends_on_step_id, run_if_condition, retry_on_failure, max_retries, timeout_seconds),
+         toolkit_ids, script_runtime,
          scheduled_workflows(id, name, cron_expression, cron_timezone, status, is_enabled, params, created_at)`
       )
       .eq("id", workflowId)

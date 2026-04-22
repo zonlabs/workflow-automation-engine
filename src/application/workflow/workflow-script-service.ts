@@ -6,7 +6,10 @@ import type {
   WorkflowJobData,
   WorkflowRow,
 } from "../../domain/workflow";
-import { normalizeWorkflowError } from "../../domain/workflow-errors";
+import {
+  createPermanentWorkflowError,
+  normalizeWorkflowError,
+} from "../../domain/workflow-errors";
 import type { ExecutionLogRepository } from "../../infrastructure/supabase/execution-log-repository";
 import { nowIso } from "./retry-policy";
 
@@ -19,7 +22,10 @@ export async function executeScriptWorkflow(
 ): Promise<WorkflowExecutionResult> {
   const scriptCode = workflow.script_code?.trim();
   if (!scriptCode) {
-    throw new Error("Script workflow is missing script_code");
+    throw createPermanentWorkflowError(
+      "Workflow is missing script_code. Script-based workflows are required.",
+      "SCRIPT_CODE_MISSING"
+    );
   }
 
   const scriptStartedAt = Date.now();

@@ -101,38 +101,6 @@ CREATE INDEX IF NOT EXISTS idx_execution_logs_status ON execution_logs(status);
 CREATE INDEX IF NOT EXISTS idx_execution_logs_created_at ON execution_logs(created_at);
 
 -- ============================================
--- WORKFLOW_STEPS TABLE
--- ============================================
-CREATE TABLE IF NOT EXISTS workflow_steps (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-  
-  step_number INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT,
-  
-  toolkit TEXT NOT NULL,
-  tool_slug TEXT NOT NULL,
-  tool_arguments JSONB NOT NULL DEFAULT '{}',
-  
-  depends_on_step_id UUID REFERENCES workflow_steps(id),
-  run_if_condition JSONB,
-  retry_on_failure BOOLEAN DEFAULT TRUE,
-  max_retries INTEGER DEFAULT 3,
-  timeout_seconds INTEGER DEFAULT 300,
-  
-  output_mapping JSONB,
-  
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  
-  CONSTRAINT valid_step_number CHECK (step_number > 0),
-  UNIQUE(workflow_id, step_number)
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow_id ON workflow_steps(workflow_id);
-
--- ============================================
 -- WEBHOOK_TRIGGERS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS webhook_triggers (

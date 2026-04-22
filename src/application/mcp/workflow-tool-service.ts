@@ -74,15 +74,14 @@ export class WorkflowToolService {
     }
 
     return rows.map((workflow) => {
-      const stepCount = workflow.workflow_steps.length;
-      const toolkits = [...new Set(workflow.workflow_steps.map((step) => step.toolkit))];
-      const workflow_kind = stepCount > 0 ? ("dag" as const) : ("script" as const);
+      const toolkits = [...new Set(workflow.toolkit_ids ?? [])];
+      const workflow_kind = "script" as const;
       const toolkit_label =
         toolkits.length > 0
           ? toolkits.join(", ")
-          : workflow_kind === "script"
-            ? "Script entrypoint (no DAG steps)"
-            : "No toolkits";
+          : workflow.script_code?.trim()
+            ? "Script workflow"
+            : "No toolkit metadata";
 
       return {
         id: workflow.id,
@@ -91,7 +90,7 @@ export class WorkflowToolService {
         is_active: workflow.is_active,
         created_at: workflow.created_at,
         toolkits,
-        step_count: stepCount,
+        step_count: 0,
         schedule_count: workflow.scheduled_workflows.length,
         workflow_kind,
         toolkit_label,
@@ -105,12 +104,7 @@ export class WorkflowToolService {
     if (!data) {
       throw new Error("Workflow not found");
     }
-
-    const steps = [...((data.workflow_steps as Array<{ step_number: number }>) ?? [])].sort(
-      (a, b) => a.step_number - b.step_number
-    );
-
-    return { ...data, workflow_steps: steps };
+    return { ...data, workflow_kind: "script" as const };
   }
 
   async upsertScriptWorkflow(input: {

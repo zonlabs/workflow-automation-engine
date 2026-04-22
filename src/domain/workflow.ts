@@ -14,24 +14,9 @@ export interface WorkflowJobData {
   attempt?: number;
 }
 
-export interface WorkflowStepRow {
-  id: string;
-  workflow_id: string;
-  step_number: number;
-  name: string;
-  description?: string | null;
-  toolkit: string;
-  tool_slug: string;
-  tool_arguments: JsonObject;
-  depends_on_step_id: string | null;
-  run_if_condition: JsonObject | null;
-  retry_on_failure: boolean | null;
-  max_retries: number | null;
-  timeout_seconds: number | null;
-}
-
 export interface WorkflowRow {
   id: string;
+  toolkit_ids?: string[] | null;
   script_code?: string | null;
   script_runtime?: JsonObject | null;
 }

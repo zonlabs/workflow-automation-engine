@@ -38,7 +38,7 @@ This project is a **workflow automation engine** that allows users to:
 ✅ **Cron Scheduling** - Schedule workflows using cron expressions  
 ✅ **Multi-Step Workflows** - Support for sequential steps with dependencies  
 ✅ **Error Handling** - Automatic retries with exponential backoff  
-✅ **Variable Resolution** - Use `{{params.xxx}}` and `{{steps.0.output}}` in workflow steps  
+✅ **Script Workflows** - Execute JavaScript or Python workflow scripts with `params`, `context`, and MCP helper functions  
 ✅ **MCP Integration** - Execute tools across GitHub, Slack, Gmail, Notion, etc.  
 ✅ **Execution Logging** - Complete history with status, duration, and errors  
 ✅ **Webhook Triggers** - Manual execution via webhooks  
@@ -59,7 +59,6 @@ This project is a **workflow automation engine** that allows users to:
 │  - workflows                │
 │  - scheduled_workflows      │
 │  - execution_logs           │
-│  - workflow_steps           │
 │  - mcp_credentials          │
 └────────────┬────────────────┘
              │
@@ -175,28 +174,6 @@ total_runs            INTEGER   -- Total execution count
 successful_runs       INTEGER   -- Successful execution count
 failed_runs           INTEGER   -- Failed execution count
 params                JSONB     -- Override input parameters
-created_at            TIMESTAMP
-updated_at            TIMESTAMP
-```
-
-#### `workflow_steps`
-Individual steps within a workflow.
-
-```sql
-id                    UUID      -- Step ID
-workflow_id           UUID      -- FK to workflows
-step_number           INTEGER   -- Execution order (1, 2, 3...)
-name                  TEXT      -- Step name
-description           TEXT      -- What this step does
-toolkit               TEXT      -- MCP toolkit ("github", "slack", etc.)
-tool_slug             TEXT      -- Tool identifier (e.g., "GITHUB_CREATE_AN_ISSUE")
-tool_arguments        JSONB     -- Arguments with variable placeholders
-depends_on_step_id    UUID      -- Optional dependency on another step
-run_if_condition      JSONB     -- Conditional execution logic
-retry_on_failure      BOOLEAN   -- Should retry on failure?
-max_retries           INTEGER   -- How many retry attempts?
-timeout_seconds       INTEGER   -- Step timeout in seconds
-output_mapping        JSONB     -- Map step output to next step input
 created_at            TIMESTAMP
 updated_at            TIMESTAMP
 ```
@@ -536,13 +513,13 @@ When working with this codebase:
    - `src/infrastructure/supabase/*` - repository boundaries
    - `workers/workflow-worker.ts` / `workers/scheduler.ts` - thin transport entrypoints
 
-3. **Variable Resolution Pattern:**
+3. **Script Execution Pattern:**
    - `{{params.xxx}}` → Gets from input params
-   - `{{steps.0.output}}` → Gets from previous step output
-   - Supports nested paths: `{{steps.0.data.html_url}}`
+   - Scripts receive `params` and `context`
+   - Scripts call MCP tools through `run_tool(...)` or `mcp.callTool(...)`
 
 4. **Error Handling:**
-   - Each step has `max_retries` configuration
+   - Script runs still use job-level retry handling for transient failures
    - Exponential backoff: 1s → 2s → 4s
    - Failed jobs are logged with full error stack
 
@@ -550,22 +527,22 @@ When working with this codebase:
 
    **Add a new MCP toolkit support:**
    ```typescript
-   // In lib/mcp-executor.ts
+   // In src/application/workflow/workflow-execution-service.ts
    async function executeMCPTool(options: ExecuteOptions): Promise<any> {
-     // Already handles all toolkits dynamically
+     // Script workflows call MCP tools dynamically through run_tool(...)
      // Just need to add credentials in mcp_credentials table
    }
    ```
 
    **Add workflow validation:**
    ```typescript
-   // In lib/workflow-executor.ts
+   // In src/application/workflow/workflow-execution-service.ts
    // Validate input_schema against params before execution
    ```
 
-   **Add step pre/post hooks:**
+   **Add script lifecycle hooks:**
    ```typescript
-   // Extend step execution with custom logic
+   // Extend script execution with custom logic
    ```
 
 6. **Testing Locally:**

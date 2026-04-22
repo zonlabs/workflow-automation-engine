@@ -169,8 +169,8 @@ export function registerWorkflowMcpCoreTools(
     {
       title: "Get Workflow",
       description:
-        "Fetch a workflow including script_code, schemas, workflow_steps (multi-tool DAG), and scheduled_workflows. " +
-        "Script workflows: see workflow_upsert_script for the supported JavaScript/Python entry-point API.",
+        "Fetch a script workflow including script_code, toolkit metadata, schemas, and scheduled_workflows. " +
+        "See workflow_upsert_script for the supported JavaScript/Python entry-point API.",
       inputSchema: {
         user_id: z
           .string()
@@ -202,7 +202,7 @@ export function registerWorkflowMcpCoreTools(
     {
       title: "Create or Update Script Workflow",
       description:
-        "Create or update a workflow executed as a single script (no workflow_steps rows required). " +
+        "Create or update a workflow executed as a single script. " +
         "JavaScript (default): top-level `async function main(params, context) { ... }` (recommended), or module.exports.main, " +
         "module.exports.executeWorkflow, module.exports.default, or assign global.output. " +
         "Inside the script, call MCP tools with run_tool(tool_slug, arguments) or mcp.callTool(tool_slug, arguments). " +

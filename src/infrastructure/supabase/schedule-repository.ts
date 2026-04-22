@@ -1,6 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import type { ScheduledWorkflowRow } from "../../domain/workflow";
-import { MANUAL_SCHEDULE_NAME } from "../../lib/manual-schedule";
+import { MANUAL_SCHEDULE_NAME } from "../../domain/schedule-constants";
 
 export class ScheduleRepository {
   async listActiveSchedules(): Promise<ScheduledWorkflowRow[]> {
