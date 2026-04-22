@@ -79,7 +79,7 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
   app.post("/script-helper/tool", async (req: Request, res: Response) => {
     if (!requireHelperAuth(req, res)) return;
     try {
-      const { tool_slug, arguments: args, context } = req.body ?? {};
+      const { tool_slug, arguments: args, context, server_name } = req.body ?? {};
       if (!tool_slug) {
         res.status(400).json({ error: "tool_slug is required" });
         return;
@@ -93,11 +93,16 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
         context?.session_id != null && String(context.session_id).trim()
           ? String(context.session_id).trim()
           : undefined;
+      const serverNameHint =
+        server_name != null && String(server_name).trim()
+          ? String(server_name).trim()
+          : undefined;
       const { raw, meta } = await callToolAcrossSessions(
         userId,
         String(tool_slug),
         (args ?? {}) as Record<string, unknown>,
-        contextSessionId
+        contextSessionId,
+        serverNameHint
       );
       res.json({ output: unwrapMcpToolCallResult(raw), meta });
     } catch (err) {

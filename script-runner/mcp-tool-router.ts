@@ -28,9 +28,10 @@ export function sortClientsForToolSlug(clients: MCPClient[], toolSlug: string): 
 }
 
 export type ToolResolutionMeta = {
-  mode: "listed_session" | "context_session_fallback";
+  mode: "listed_session" | "meta_tool_proxy" | "context_session_fallback";
   toolSlug: string;
   serverUrl?: string;
+  serverName?: string;
   warning?: string;
 };
 
@@ -44,22 +45,88 @@ function formatToolCallError(err: unknown): string {
 }
 
 /**
+ * Try executing `toolSlug` via `mcp_execute_tool` meta-tool on sessions that advertise it.
+ * This handles sessions using the `search` strategy where real tools aren't in listTools()
+ * but are accessible through the meta-tool proxy.
+ */
+async function tryMetaToolProxy(
+  clients: MCPClient[],
+  toolSlug: string,
+  args: Record<string, unknown>,
+  serverNameHint?: string
+): Promise<{ raw: unknown; meta: ToolResolutionMeta } | null> {
+  for (const c of clients) {
+    let listed: { tools?: Array<{ name?: string }> } | undefined;
+    try {
+      listed = (await c.listTools()) as { tools?: Array<{ name?: string }> };
+    } catch {
+      continue;
+    }
+    const names = listed?.tools ?? [];
+    const hasMetaTool = names.some((t) => t?.name === "mcp_execute_tool");
+    if (!hasMetaTool) continue;
+
+    const serverUrl = c.getServerUrl() || undefined;
+    const proxyServerName =
+      (typeof c.getServerName === "function" ? c.getServerName() : undefined) ?? undefined;
+
+    try {
+      const proxyArgs: Record<string, unknown> = {
+        toolName: toolSlug,
+        args,
+      };
+      if (serverNameHint) {
+        proxyArgs.serverName = serverNameHint;
+      }
+
+      const result = await c.callTool("mcp_execute_tool", proxyArgs);
+      return {
+        raw: result,
+        meta: {
+          mode: "meta_tool_proxy",
+          toolSlug,
+          serverUrl,
+          serverName: proxyServerName,
+        },
+      };
+    } catch (err) {
+      // Check if the meta-tool itself reported "not found" for the target tool
+      const msg = formatToolCallError(err);
+      if (msg.includes("not found")) {
+        continue; // Try next session
+      }
+      // Other errors: still try next session
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
  * Resolves `toolSlug` across all MCP sessions for `userId`.
- * @param contextSessionId - `context.session_id` from the workflow run: used only when no session
- *   advertises the tool via `listTools()` (see `context_session_fallback` in meta).
+ * Resolution order:
+ *   1. Direct call on sessions that advertise the tool via `listTools()`
+ *   2. Meta-tool proxy (`mcp_execute_tool`) on sessions that advertise it
+ *   3. Context session fallback (unless strict discovery is enabled)
+ *
+ * @param contextSessionId - `context.session_id` from the workflow run
+ * @param serverNameHint - Optional server name to disambiguate tool calls via meta-tool proxy
  */
 export async function callToolAcrossSessions(
   userId: string,
   toolSlug: string,
   args: Record<string, unknown>,
-  contextSessionId?: string
+  contextSessionId?: string,
+  serverNameHint?: string
 ): Promise<{ raw: unknown; meta: ToolResolutionMeta }> {
   const multi = new MultiSessionClient(userId);
   let lastAdvertisedFailure: { serverUrl?: string; message: string } | null = null;
+  let clients: MCPClient[] = [];
   try {
     await multi.connect();
-    const clients = sortClientsForToolSlug(multi.getClients(), toolSlug);
+    clients = sortClientsForToolSlug(multi.getClients(), toolSlug);
 
+    // Phase 1: Direct tool call on sessions that list the tool
     for (const c of clients) {
       let listed: { tools?: Array<{ name?: string }> } | undefined;
       try {
@@ -85,6 +152,12 @@ export async function callToolAcrossSessions(
         lastAdvertisedFailure = { serverUrl, message: formatToolCallError(err) };
         continue;
       }
+    }
+
+    // Phase 2: Try meta-tool proxy (mcp_execute_tool) on sessions that have it
+    const metaResult = await tryMetaToolProxy(clients, toolSlug, args, serverNameHint);
+    if (metaResult) {
+      return metaResult;
     }
   } finally {
     multi.disconnect();
@@ -151,3 +224,4 @@ export async function callToolAcrossSessions(
       `Connect the server that provides this tool (e.g. Zapier) in the same account.`
   );
 }
+

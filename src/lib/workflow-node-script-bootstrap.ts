@@ -9,7 +9,7 @@ export const WORKFLOW_SCRIPT_NO_ENTRY_POINT = "WORKFLOW_SCRIPT_NO_ENTRY_POINT";
 const ENTRY_POINT_HELP =
   "Export async function main(params, context) { ... }, or set module.exports.main, " +
   "module.exports.executeWorkflow, module.exports.default (function), or global.output. " +
-  "Call MCP tools with run_tool(tool_slug, arguments) or mcp.callTool(tool_slug, arguments). " +
+  "Call MCP tools with run_tool(tool_slug, arguments, server_name?) or mcp.callTool(tool_slug, arguments, serverName?). " +
   "For Zapier/MCP list payloads use toolResultRows(await run_tool(...)) when iterating. " +
   "`context` is execution metadata (workflow_id, session_id, user_id, …) only, not an MCP client.";
 
@@ -134,8 +134,10 @@ export function buildLocalNodeRunnerFile(userCode: string): string {
     "  return obj || {};",
     "}",
     "",
-    "async function run_tool(tool_slug, arguments_) {",
-    "  const result = await _post('/tool', { tool_slug, arguments: arguments_, context });",
+    "async function run_tool(tool_slug, arguments_, server_name) {",
+    "  const body = { tool_slug, arguments: arguments_, context };",
+    "  if (server_name) body.server_name = server_name;",
+    "  const result = await _post('/tool', body);",
     "  const meta = result && typeof result === 'object' ? result.meta : null;",
     "  if (meta && typeof meta === 'object' && typeof meta.warning === 'string' && meta.warning) {",
     "    console.warn(meta.warning);",
@@ -163,7 +165,7 @@ export function buildLocalNodeRunnerFile(userCode: string): string {
     "  throw new Error('upload_artifact is not available in this runner');",
     "}",
     "",
-    "const mcp = { callTool: (toolSlug, arguments_) => run_tool(toolSlug, arguments_) };",
+    "const mcp = { callTool: (toolSlug, arguments_, serverName) => run_tool(toolSlug, arguments_, serverName) };",
     "",
     "const moduleObj = { exports: {} };",
     "const exportsObj = moduleObj.exports;",
@@ -220,8 +222,10 @@ export function buildVercelSandboxNodeRunnerFile(): string {
     "  return obj || {};",
     "}",
     "",
-    "async function run_tool(tool_slug, arguments_) {",
-    "  const result = await _post('/script-helper/tool', { tool_slug, arguments: arguments_, context });",
+    "async function run_tool(tool_slug, arguments_, server_name) {",
+    "  const body = { tool_slug, arguments: arguments_, context };",
+    "  if (server_name) body.server_name = server_name;",
+    "  const result = await _post('/script-helper/tool', body);",
     "  const meta = result && typeof result === 'object' ? result.meta : null;",
     "  if (meta && typeof meta === 'object' && typeof meta.warning === 'string' && meta.warning) {",
     "    console.warn(meta.warning);",
@@ -249,7 +253,7 @@ export function buildVercelSandboxNodeRunnerFile(): string {
     "  throw new Error('upload_artifact is not available in this runner');",
     "}",
     "",
-    "const mcp = { callTool: (toolSlug, arguments_) => run_tool(toolSlug, arguments_) };",
+    "const mcp = { callTool: (toolSlug, arguments_, serverName) => run_tool(toolSlug, arguments_, serverName) };",
     "",
     "const vm = require('vm');",
     "const moduleObj = { exports: {} };",

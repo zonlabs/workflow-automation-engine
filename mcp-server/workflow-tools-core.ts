@@ -207,25 +207,25 @@ export async function executionLogListMcpResult(
   });
 }
 
-/** Shared handler for `execution_log_get`. */
-export async function executionLogGetMcpResult(
-  args: { user_id?: string; execution_log_id: string },
-  extra: ToolExtra | undefined
-): Promise<ToolResult> {
-  const resolvedUserId = resolveUserId(args.user_id, extra);
-  if (!resolvedUserId) {
-    return errorResponse("user_id is required");
-  }
+const TERMINAL_STATUSES = new Set(["success", "failed", "timeout", "cancelled"]);
+
+function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+/** Fetch execution log row + workflow name. */
+async function fetchExecutionLogWithName(
+  executionLogId: string,
+  resolvedUserId: string
+): Promise<{ data: Record<string, unknown>; workflow_name?: string } | null> {
   const { data, error } = await supabase
     .from("execution_logs")
     .select("*")
-    .eq("id", args.execution_log_id)
+    .eq("id", executionLogId)
     .eq("user_id", resolvedUserId)
     .single();
 
-  if (error || !data) {
-    return errorResponse("Execution log not found");
-  }
+  if (error || !data) return null;
 
   const row = data as { workflow_id?: string };
   let workflow_name: string | undefined;
@@ -238,11 +238,151 @@ export async function executionLogGetMcpResult(
       .maybeSingle();
     workflow_name = wf?.name ?? undefined;
   }
+  return { data: data as Record<string, unknown>, workflow_name };
+}
+
+/**
+ * Wait for an execution log to reach a terminal status using Supabase Realtime.
+ * Falls back to polling if Realtime subscription fails.
+ */
+async function waitForCompletion(
+  executionLogId: string,
+  resolvedUserId: string,
+  timeoutSeconds: number
+): Promise<{ data: Record<string, unknown>; workflow_name?: string } | null> {
+  const timeoutMs = timeoutSeconds * 1000;
+  const startTime = Date.now();
+
+  // Try Supabase Realtime first
+  try {
+    const result = await waitViaRealtime(executionLogId, resolvedUserId, timeoutMs, startTime);
+    if (result !== null) return result;
+  } catch (realtimeErr) {
+    console.warn("[execution_log_get] Realtime subscription failed, falling back to polling:", realtimeErr);
+  }
+
+  // Fallback: polling with 2s interval
+  return waitViaPolling(executionLogId, resolvedUserId, timeoutMs, startTime);
+}
+
+async function waitViaRealtime(
+  executionLogId: string,
+  resolvedUserId: string,
+  timeoutMs: number,
+  startTime: number
+): Promise<{ data: Record<string, unknown>; workflow_name?: string } | null> {
+  return new Promise((resolve, reject) => {
+    const channelName = `exec-log-wait-${executionLogId}-${Date.now()}`;
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      // Timeout: fetch final state and return whatever we have
+      fetchExecutionLogWithName(executionLogId, resolvedUserId).then(resolve).catch(reject);
+    }, Math.max(0, timeoutMs - (Date.now() - startTime)));
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "execution_logs",
+          filter: `id=eq.${executionLogId}`,
+        },
+        (payload: { new?: Record<string, unknown> }) => {
+          if (settled) return;
+          const newRow = payload.new;
+          if (newRow && typeof newRow.status === "string" && isTerminalStatus(newRow.status)) {
+            settled = true;
+            clearTimeout(timer);
+            try { supabase.removeChannel(channel); } catch { /* ignore */ }
+            // Fetch full row (Realtime payload may not include all columns)
+            fetchExecutionLogWithName(executionLogId, resolvedUserId).then(resolve).catch(reject);
+          }
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          try { supabase.removeChannel(channel); } catch { /* ignore */ }
+          reject(new Error(`Realtime channel ${status}`));
+        }
+      });
+  });
+}
+
+async function waitViaPolling(
+  executionLogId: string,
+  resolvedUserId: string,
+  timeoutMs: number,
+  startTime: number
+): Promise<{ data: Record<string, unknown>; workflow_name?: string } | null> {
+  const pollIntervalMs = 2000;
+  while (Date.now() - startTime < timeoutMs) {
+    const result = await fetchExecutionLogWithName(executionLogId, resolvedUserId);
+    if (!result) return null;
+    const status = (result.data as { status?: string }).status ?? "";
+    if (isTerminalStatus(status)) return result;
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+  }
+  // Timeout: return current state
+  return fetchExecutionLogWithName(executionLogId, resolvedUserId);
+}
+
+/** Shared handler for `execution_log_get`. */
+export async function executionLogGetMcpResult(
+  args: {
+    user_id?: string;
+    execution_log_id: string;
+    wait_for_completion?: boolean;
+    timeout_seconds?: number;
+  },
+  extra: ToolExtra | undefined
+): Promise<ToolResult> {
+  const resolvedUserId = resolveUserId(args.user_id, extra);
+  if (!resolvedUserId) {
+    return errorResponse("user_id is required");
+  }
+
+  // Initial fetch
+  const initial = await fetchExecutionLogWithName(args.execution_log_id, resolvedUserId);
+  if (!initial) {
+    return errorResponse("Execution log not found");
+  }
+
+  const initialStatus = (initial.data as { status?: string }).status ?? "";
+
+  // If not waiting or already terminal, return immediately
+  if (!args.wait_for_completion || isTerminalStatus(initialStatus)) {
+    return jsonResponse({
+      execution_log: initial.data,
+      workflow_id: (initial.data as { workflow_id?: string }).workflow_id,
+      workflow_name: initial.workflow_name,
+    });
+  }
+
+  // Wait for completion
+  const timeoutSeconds = Math.min(Math.max(args.timeout_seconds ?? 60, 1), 120);
+  const finalResult = await waitForCompletion(args.execution_log_id, resolvedUserId, timeoutSeconds);
+
+  if (!finalResult) {
+    return errorResponse("Execution log not found after waiting");
+  }
+
+  const finalStatus = (finalResult.data as { status?: string }).status ?? "";
+  const timedOut = !isTerminalStatus(finalStatus);
 
   return jsonResponse({
-    execution_log: data,
-    workflow_id: row.workflow_id,
-    workflow_name,
+    execution_log: finalResult.data,
+    workflow_id: (finalResult.data as { workflow_id?: string }).workflow_id,
+    workflow_name: finalResult.workflow_name,
+    ...(timedOut ? { wait_timed_out: true, message: `Timed out after ${timeoutSeconds}s — execution is still ${finalStatus}` } : {}),
   });
 }
 
@@ -250,7 +390,10 @@ function registerExecutionLogTools(
   server: McpServer
 ): void {
   const listDescription = "List recent execution logs. Optional workflow_id scopes rows to one workflow.";
-  const getDescription = "Fetch a single execution log by id.";
+  const getDescription =
+    "Fetch a single execution log by id. Set wait_for_completion=true to wait for a running workflow " +
+    "to finish (uses Supabase Realtime) instead of polling repeatedly. Returns once the execution " +
+    "reaches a terminal state (success/failed/timeout/cancelled) or timeout_seconds elapses.";
 
   const listConfig = {
     title: "List Execution Logs",
@@ -273,14 +416,28 @@ function registerExecutionLogTools(
         .optional()
         .describe("Supabase auth.users id (UUID). Defaults to the Bearer-authenticated user."),
       execution_log_id: z.string(),
+      wait_for_completion: z
+        .boolean()
+        .optional()
+        .describe(
+          "If true, waits until the execution reaches a terminal status (success, failed, timeout, cancelled) " +
+          "or until timeout_seconds elapses. Uses Supabase Realtime with polling fallback. Default: false."
+        ),
+      timeout_seconds: z
+        .number()
+        .optional()
+        .describe("Max seconds to wait when wait_for_completion is true. Default: 60, max: 120."),
     },
   };
 
   server.registerTool("execution_log_list", listConfig, async ({ user_id, workflow_id, limit }, extra) =>
     executionLogListMcpResult({ user_id, workflow_id, limit }, extra)
   );
-  server.registerTool("execution_log_get", getConfig, async ({ user_id, execution_log_id }, extra) =>
-    executionLogGetMcpResult({ user_id, execution_log_id }, extra)
+  server.registerTool(
+    "execution_log_get",
+    getConfig,
+    async ({ user_id, execution_log_id, wait_for_completion, timeout_seconds }, extra) =>
+      executionLogGetMcpResult({ user_id, execution_log_id, wait_for_completion, timeout_seconds }, extra)
   );
 }
 

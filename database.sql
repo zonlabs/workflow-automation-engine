@@ -263,3 +263,6 @@ DROP INDEX IF EXISTS idx_execution_logs_runner_user_id;
 ALTER TABLE workflows DROP COLUMN IF EXISTS runner_user_id;
 ALTER TABLE scheduled_workflows DROP COLUMN IF EXISTS runner_user_id;
 ALTER TABLE execution_logs DROP COLUMN IF EXISTS runner_user_id;
+
+-- Enable Realtime for execution_logs (Added to support wait_for_completion polling)
+ALTER PUBLICATION supabase_realtime ADD TABLE execution_logs;

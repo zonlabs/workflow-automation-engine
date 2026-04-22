@@ -51,8 +51,10 @@ function buildPythonScript() {
     "        raise Exception(parsed.get('error'))",
     "    return parsed",
     "",
-    "def run_tool(tool_slug, arguments):",
-    "    resp = _post('/tool', {'tool_slug': tool_slug, 'arguments': arguments, 'context': context})",
+    "def run_tool(tool_slug, arguments, server_name=None):",
+    "    body = {'tool_slug': tool_slug, 'arguments': arguments, 'context': context}",
+    "    if server_name: body['server_name'] = server_name",
+    "    resp = _post('/tool', body)",
     "    meta = resp.get('meta') if isinstance(resp, dict) else None",
     "    if isinstance(meta, dict) and meta.get('warning'):",
     "        print(str(meta.get('warning')), file=sys.stderr)",
@@ -91,8 +93,8 @@ function buildPythonScript() {
     "",
     "class _Mcp:",
     "    @staticmethod",
-    "    def callTool(tool_slug, arguments):",
-    "        return run_tool(tool_slug, arguments)",
+    "    def callTool(tool_slug, arguments, server_name=None):",
+    "        return run_tool(tool_slug, arguments, server_name)",
     "",
     "mcp = _Mcp()",
     "",
@@ -321,12 +323,16 @@ async function handleToolCall(payload: any) {
   const contextSessionId = context.session_id != null && String(context.session_id).trim()
     ? String(context.session_id).trim()
     : undefined;
+  const serverNameHint = payload?.server_name != null && String(payload.server_name).trim()
+    ? String(payload.server_name).trim()
+    : undefined;
 
   const { raw, meta } = await callToolAcrossSessions(
     userId,
     toolSlug,
     (payload?.arguments ?? {}) as Record<string, unknown>,
-    contextSessionId
+    contextSessionId,
+    serverNameHint
   );
   return { output: unwrapMcpToolCallResult(raw), meta };
 }
