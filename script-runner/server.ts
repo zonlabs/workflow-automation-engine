@@ -7,7 +7,7 @@ import { spawn } from "child_process";
 import { generateText } from "ai";
 import { resolveModel } from "../src/lib/ai/provider-registry";
 import { buildLocalNodeRunnerFile } from "../src/lib/workflow-node-script-bootstrap";
-import { unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
+import { extractMcpToolErrorMessage, unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
 import { callToolAcrossSessions } from "./mcp-tool-router";
 
 type RunRequest = {
@@ -334,6 +334,12 @@ async function handleToolCall(payload: any) {
     contextSessionId,
     serverNameHint
   );
+
+  const toolErrorMessage = extractMcpToolErrorMessage(raw);
+  if (toolErrorMessage) {
+    throw new Error(`Tool "${toolSlug}" failed: ${toolErrorMessage}`);
+  }
+
   return { output: unwrapMcpToolCallResult(raw), meta };
 }
 

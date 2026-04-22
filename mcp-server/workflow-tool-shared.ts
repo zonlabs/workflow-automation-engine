@@ -41,9 +41,9 @@ export type ToolExtra = { authInfo?: { extra?: Record<string, unknown> } };
 
 /** Prefer AsyncLocalStorage (Express); else MCP auth from mcp-handler / Streamable HTTP. */
 export function resolveUserId(argUserId?: string | null, extra?: ToolExtra): string {
+  const arg = argUserId?.trim() ?? "";
   const ctxUserId = getRequestContext().userId?.trim() ?? "";
   const authRaw = extra?.authInfo?.extra?.userId;
   const authUserId = typeof authRaw === "string" ? authRaw.trim() : "";
-  const arg = argUserId?.trim() ?? "";
-  return ctxUserId || authUserId || arg;
+  return arg || ctxUserId || authUserId;
 }

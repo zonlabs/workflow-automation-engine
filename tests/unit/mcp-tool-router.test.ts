@@ -68,6 +68,8 @@ describe("callToolAcrossSessions", () => {
   });
 
   it("falls back to context session when tool is not advertised", async () => {
+    process.env.WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK = "true";
+
     const other = makeMockClient({
       serverUrl: "https://other.mcp",
       tools: ["something_else"],
@@ -97,12 +99,10 @@ describe("callToolAcrossSessions", () => {
     expect(meta.toolSlug).toBe("unlisted_tool");
     expect(meta.serverUrl).toBe("https://context-session.mcp");
     expect(meta.warning).toContain("workflow context session");
-    expect(meta.warning).toContain("WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY");
+    expect(meta.warning).toContain("WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK");
   });
 
-  it("throws in strict discovery mode when tool is not advertised", async () => {
-    process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY = "true";
-
+  it("throws by default when tool is not advertised", async () => {
     const other = makeMockClient({
       serverUrl: "https://other.mcp",
       tools: ["something_else"],
@@ -119,9 +119,31 @@ describe("callToolAcrossSessions", () => {
     const mcpClientCtor = vi.mocked(sdkServer.MCPClient);
 
     await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-ctx")).rejects.toThrow(
-      /Strict discovery is enabled/
+      /Strict discovery is enabled by default/
     );
     expect(mcpClientCtor).not.toHaveBeenCalled();
+  });
+
+  it("honors explicit strict discovery mode when enabled", async () => {
+    process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY = "true";
+    process.env.WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK = "true";
+
+    const other = makeMockClient({
+      serverUrl: "https://other.mcp",
+      tools: ["something_else"],
+    });
+
+    vi.mocked(sdkServer.MultiSessionClient).mockImplementation(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        disconnect: vi.fn(),
+        getClients: vi.fn().mockReturnValue([other]),
+      };
+    } as any);
+
+    await expect(callToolAcrossSessions("user-1", "unlisted_tool", {}, "sess-ctx")).rejects.toThrow(
+      /Strict discovery is enabled by default/
+    );
   });
 
   it("continues to next advertised session if the first fails", async () => {
@@ -152,6 +174,8 @@ describe("callToolAcrossSessions", () => {
   });
 
   it("includes session + server URL when context session fallback fails", async () => {
+    process.env.WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK = "true";
+
     const other = makeMockClient({
       serverUrl: "https://other.mcp",
       tools: ["something_else"],

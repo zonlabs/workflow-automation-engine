@@ -17,4 +17,15 @@ describe("getScriptFailureMessage", () => {
     expect(getScriptFailureMessage({ success: false, message: "bad" })).toBe("bad");
     expect(getScriptFailureMessage({ success: false, error: "e" })).toBe("e");
   });
+
+  it("detects nested MCP tool errors", () => {
+    expect(
+      getScriptFailureMessage({
+        stockLookup: {
+          isError: true,
+          content: [{ type: "text", text: "MCP error -32602: Tool crawling_exa not found" }],
+        },
+      })
+    ).toBe("MCP error -32602: Tool crawling_exa not found");
+  });
 });

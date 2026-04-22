@@ -6,6 +6,7 @@ import { evaluateAICondition } from "./ai/condition-evaluator";
 import type { AIStepConfig, AIConditionConfig, AIAgentResult } from "./ai/types";
 import { runScriptWorkflow } from "./script-runner";
 import { getScriptFailureMessage } from "./script-result";
+import { extractMcpToolErrorMessage } from "./mcp-tool-output";
 
 type JsonObject = Record<string, unknown>;
 
@@ -118,44 +119,6 @@ function isAuthError(err: unknown): boolean {
   const haystack = `${normalized.code ?? ""} ${normalized.message}`.toLowerCase();
   const authMarkers = ["unauthorized", "forbidden", "401", "403", "token", "expired", "oauth"];
   return authMarkers.some((marker) => haystack.includes(marker));
-}
-
-function getMcpToolErrorMessage(result: unknown): string | null {
-  if (!result || typeof result !== "object") {
-    return null;
-  }
-
-  const candidate = result as {
-    isError?: boolean;
-    content?: Array<{ text?: unknown; type?: string }>;
-  };
-
-  const firstText = Array.isArray(candidate.content)
-    ? (candidate.content.find((c) => typeof c.text === "string")?.text as string | undefined)?.trim()
-    : undefined;
-
-  if (candidate.isError === true) {
-    return firstText || "MCP tool call returned error response";
-  }
-
-  if (firstText) {
-    const lower = firstText.toLowerCase();
-    const errorPatterns = [
-      "error:",
-      "not accessible",
-      "permission denied",
-      "forbidden",
-      "unauthorized",
-      "not found",
-      "rate limit",
-      "bad credentials",
-    ];
-    if (errorPatterns.some((p) => lower.startsWith(p) || lower.includes(p))) {
-      return firstText;
-    }
-  }
-
-  return null;
 }
 
 function resolveTemplateString(
@@ -471,7 +434,7 @@ async function executeStepWithRetry(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const result = await callMcpTool(client, step.tool_slug, resolvedArgs);
-      const toolErrorMessage = getMcpToolErrorMessage(result);
+      const toolErrorMessage = extractMcpToolErrorMessage(result);
       if (toolErrorMessage) {
         throw new NonRetryableExecutionError(
           `Step ${step.step_number} (${step.tool_slug}) returned MCP error: ${toolErrorMessage}`,

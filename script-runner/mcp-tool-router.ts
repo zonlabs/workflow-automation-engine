@@ -44,64 +44,44 @@ function formatToolCallError(err: unknown): string {
   }
 }
 
+function parseOptionalBoolean(value: string | undefined): boolean | undefined {
+  const normalizedValue = value?.trim().toLowerCase();
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  if (["true", "1", "yes", "on"].includes(normalizedValue)) {
+    return true;
+  }
+
+  if (["false", "0", "no", "off"].includes(normalizedValue)) {
+    return false;
+  }
+
+  return undefined;
+}
+
+function isStrictToolDiscoveryEnabled(): boolean {
+  const explicitStrictMode = parseOptionalBoolean(process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY);
+  if (explicitStrictMode !== undefined) {
+    return explicitStrictMode;
+  }
+
+  const allowContextSessionFallback = parseOptionalBoolean(
+    process.env.WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK
+  );
+  if (allowContextSessionFallback !== undefined) {
+    return !allowContextSessionFallback;
+  }
+
+  return true;
+}
+
 /**
  * Try executing `toolSlug` via `mcp_execute_tool` meta-tool on sessions that advertise it.
  * This handles sessions using the `search` strategy where real tools aren't in listTools()
  * but are accessible through the meta-tool proxy.
  */
-async function tryMetaToolProxy(
-  clients: MCPClient[],
-  toolSlug: string,
-  args: Record<string, unknown>,
-  serverNameHint?: string
-): Promise<{ raw: unknown; meta: ToolResolutionMeta } | null> {
-  for (const c of clients) {
-    let listed: { tools?: Array<{ name?: string }> } | undefined;
-    try {
-      listed = (await c.listTools()) as { tools?: Array<{ name?: string }> };
-    } catch {
-      continue;
-    }
-    const names = listed?.tools ?? [];
-    const hasMetaTool = names.some((t) => t?.name === "mcp_execute_tool");
-    if (!hasMetaTool) continue;
-
-    const serverUrl = c.getServerUrl() || undefined;
-    const proxyServerName =
-      (typeof c.getServerName === "function" ? c.getServerName() : undefined) ?? undefined;
-
-    try {
-      const proxyArgs: Record<string, unknown> = {
-        toolName: toolSlug,
-        args,
-      };
-      if (serverNameHint) {
-        proxyArgs.serverName = serverNameHint;
-      }
-
-      const result = await c.callTool("mcp_execute_tool", proxyArgs);
-      return {
-        raw: result,
-        meta: {
-          mode: "meta_tool_proxy",
-          toolSlug,
-          serverUrl,
-          serverName: proxyServerName,
-        },
-      };
-    } catch (err) {
-      // Check if the meta-tool itself reported "not found" for the target tool
-      const msg = formatToolCallError(err);
-      if (msg.includes("not found")) {
-        continue; // Try next session
-      }
-      // Other errors: still try next session
-      continue;
-    }
-  }
-  return null;
-}
-
 /**
  * Resolves `toolSlug` across all MCP sessions for `userId`.
  * Resolution order:
@@ -126,22 +106,26 @@ export async function callToolAcrossSessions(
     await multi.connect();
     clients = sortClientsForToolSlug(multi.getClients(), toolSlug);
 
-    // Phase 1: Direct tool call on sessions that list the tool
-    for (const c of clients) {
-      let listed: { tools?: Array<{ name?: string }> } | undefined;
-      try {
-        listed = (await c.listTools()) as { tools?: Array<{ name?: string }> };
-      } catch {
-        continue;
-      }
-      const names = listed?.tools ?? [];
-      const has = names.some((t) => t?.name === toolSlug);
-      if (!has) continue;
+    const clientTools = await Promise.all(
+      clients.map(async (client) => {
+        try {
+          const listed = (await client.listTools()) as { tools?: Array<{ name?: string }> };
+          return { client, names: listed?.tools?.map((t) => t.name) ?? [] };
+        } catch (err) {
+          console.warn(`[ToolRouter] Failed to list tools for session ${client.getSessionId()} (${client.getServerUrl()}):`, err);
+          return { client, names: [] };
+        }
+      })
+    );
 
-      const serverUrl = c.getServerUrl() || undefined;
+    // Phase 1: Direct tool call on sessions that list the tool
+    for (const { client, names } of clientTools) {
+      if (!names.includes(toolSlug)) continue;
+
+      const serverUrl = client.getServerUrl() || undefined;
       try {
         return {
-          raw: await c.callTool(toolSlug, args),
+          raw: await client.callTool(toolSlug, args),
           meta: {
             mode: "listed_session",
             toolSlug,
@@ -150,25 +134,53 @@ export async function callToolAcrossSessions(
         };
       } catch (err) {
         lastAdvertisedFailure = { serverUrl, message: formatToolCallError(err) };
-        continue;
+        continue; // Try next advertised session if this one failed
       }
     }
 
     // Phase 2: Try meta-tool proxy (mcp_execute_tool) on sessions that have it
-    const metaResult = await tryMetaToolProxy(clients, toolSlug, args, serverNameHint);
-    if (metaResult) {
-      return metaResult;
+    for (const { client, names } of clientTools) {
+      if (!names.includes("mcp_execute_tool")) continue;
+
+      const serverUrl = client.getServerUrl() || undefined;
+      const proxyServerName =
+        (typeof client.getServerName === "function" ? client.getServerName() : undefined) ?? undefined;
+
+      try {
+        const proxyArgs: Record<string, unknown> = {
+          toolName: toolSlug,
+          args,
+        };
+        if (serverNameHint) {
+          proxyArgs.serverName = serverNameHint;
+        }
+
+        const result = await client.callTool("mcp_execute_tool", proxyArgs);
+        return {
+          raw: result,
+          meta: {
+            mode: "meta_tool_proxy",
+            toolSlug,
+            serverUrl,
+            serverName: proxyServerName,
+          },
+        };
+      } catch (err) {
+        const msg = formatToolCallError(err);
+        if (msg.includes("not found")) continue; // Try next proxy session
+        continue; // Other error, try next proxy session
+      }
     }
   } finally {
     multi.disconnect();
   }
 
-  const strictDiscovery =
-    String(process.env.WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY ?? "").trim().toLowerCase() === "true";
+  const strictDiscovery = isStrictToolDiscoveryEnabled();
   if (strictDiscovery) {
     throw new Error(
       `No connected MCP session advertised tool "${toolSlug}" via listTools(). ` +
-        `Strict discovery is enabled (WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true), so fallback using context.session_id is disabled.`
+        `Strict discovery is enabled by default, so fallback using context.session_id is disabled. ` +
+        `Set WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK=true to opt in to the legacy fallback behavior.`
     );
   }
 
@@ -186,7 +198,7 @@ export async function callToolAcrossSessions(
             serverUrl: contextSessionUrl,
             warning:
               `Tool "${toolSlug}" ran on the workflow context session because no connected session advertised it via listTools(). ` +
-              `If this is unexpected, enable strict mode with WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true.`,
+              `This legacy fallback is opt-in; remove WORKFLOW_SCRIPT_ALLOW_CONTEXT_SESSION_FALLBACK or enable WORKFLOW_SCRIPT_STRICT_TOOL_DISCOVERY=true to disable it.`,
           },
         };
       } catch (err) {

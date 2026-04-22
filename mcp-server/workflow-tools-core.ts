@@ -243,7 +243,6 @@ async function fetchExecutionLogWithName(
 
 /**
  * Wait for an execution log to reach a terminal status using Supabase Realtime.
- * Falls back to polling if Realtime subscription fails.
  */
 async function waitForCompletion(
   executionLogId: string,
@@ -253,16 +252,15 @@ async function waitForCompletion(
   const timeoutMs = timeoutSeconds * 1000;
   const startTime = Date.now();
 
-  // Try Supabase Realtime first
   try {
     const result = await waitViaRealtime(executionLogId, resolvedUserId, timeoutMs, startTime);
     if (result !== null) return result;
   } catch (realtimeErr) {
-    console.warn("[execution_log_get] Realtime subscription failed, falling back to polling:", realtimeErr);
+    console.warn("[execution_log_get] Realtime subscription failed:", realtimeErr);
   }
 
-  // Fallback: polling with 2s interval
-  return waitViaPolling(executionLogId, resolvedUserId, timeoutMs, startTime);
+  // If Realtime fails or returns null, just fetch the current state and return it
+  return fetchExecutionLogWithName(executionLogId, resolvedUserId);
 }
 
 async function waitViaRealtime(
@@ -315,24 +313,6 @@ async function waitViaRealtime(
         }
       });
   });
-}
-
-async function waitViaPolling(
-  executionLogId: string,
-  resolvedUserId: string,
-  timeoutMs: number,
-  startTime: number
-): Promise<{ data: Record<string, unknown>; workflow_name?: string } | null> {
-  const pollIntervalMs = 2000;
-  while (Date.now() - startTime < timeoutMs) {
-    const result = await fetchExecutionLogWithName(executionLogId, resolvedUserId);
-    if (!result) return null;
-    const status = (result.data as { status?: string }).status ?? "";
-    if (isTerminalStatus(status)) return result;
-    await new Promise((r) => setTimeout(r, pollIntervalMs));
-  }
-  // Timeout: return current state
-  return fetchExecutionLogWithName(executionLogId, resolvedUserId);
 }
 
 /** Shared handler for `execution_log_get`. */
@@ -421,7 +401,7 @@ function registerExecutionLogTools(
         .optional()
         .describe(
           "If true, waits until the execution reaches a terminal status (success, failed, timeout, cancelled) " +
-          "or until timeout_seconds elapses. Uses Supabase Realtime with polling fallback. Default: false."
+          "or until timeout_seconds elapses. Uses Supabase Realtime. Default: false."
         ),
       timeout_seconds: z
         .number()

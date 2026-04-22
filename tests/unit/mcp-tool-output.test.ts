@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unwrapMcpToolCallResult } from "../../src/lib/mcp-tool-output";
+import { extractMcpToolErrorMessage, unwrapMcpToolCallResult } from "../../src/lib/mcp-tool-output";
 
 describe("unwrapMcpToolCallResult", () => {
   it("returns raw when not MCP shape", () => {
@@ -29,5 +29,22 @@ describe("unwrapMcpToolCallResult", () => {
       ],
     };
     expect(unwrapMcpToolCallResult(raw)).toEqual({ ok: true });
+  });
+
+  it("extracts MCP errors from explicit error payloads", () => {
+    const raw = {
+      isError: true,
+      content: [{ type: "text", text: "MCP error -32602: Tool gmail_send_email not found" }],
+    };
+
+    expect(extractMcpToolErrorMessage(raw)).toBe("MCP error -32602: Tool gmail_send_email not found");
+  });
+
+  it("extracts MCP errors from error-like text payloads", () => {
+    const raw = {
+      content: [{ type: "text", text: "MCP error -32602: Tool crawling_exa not found" }],
+    };
+
+    expect(extractMcpToolErrorMessage(raw)).toBe("MCP error -32602: Tool crawling_exa not found");
   });
 });

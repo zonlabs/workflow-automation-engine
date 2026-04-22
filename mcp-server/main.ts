@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
+import { extractMcpToolErrorMessage, unwrapMcpToolCallResult } from "../src/lib/mcp-tool-output";
 import { createMcpServer } from "./server";
 import { resolveUserIdFromRequest } from "./auth";
 import { runWithRequestContext } from "./request-context";
@@ -104,6 +104,13 @@ export async function startStreamableHttpServer(createServer: () => McpServer) {
         contextSessionId,
         serverNameHint
       );
+
+      const toolErrorMessage = extractMcpToolErrorMessage(raw);
+      if (toolErrorMessage) {
+        res.status(500).json({ error: `Tool "${String(tool_slug)}" failed: ${toolErrorMessage}` });
+        return;
+      }
+
       res.json({ output: unwrapMcpToolCallResult(raw), meta });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "Tool call failed" });
