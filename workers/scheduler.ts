@@ -19,11 +19,11 @@ async function resolveSessionId(userId: string): Promise<string | null> {
   return null;
 }
 
-function isDue(cronExpression: string, lastCheckedAt: Date, now: Date): boolean {
+function isDue(cronExpression: string, lastCheckedAt: Date, now: Date, timezone: string = "Asia/Kolkata"): boolean {
   try {
     const expr = CronExpressionParser.parse(cronExpression, {
       currentDate: lastCheckedAt,
-      tz: "UTC",
+      tz: timezone,
     });
 
     const nextDate = expr.next().toDate();
@@ -40,7 +40,7 @@ async function checkAndEnqueueSchedules() {
   const { data: schedules, error } = await supabase
     .from("scheduled_workflows")
     .select(
-      "id, workflow_id, user_id, name, cron_expression, params, last_run_at, is_enabled, status"
+      "id, workflow_id, user_id, name, cron_expression, cron_timezone, params, last_run_at, is_enabled, status"
     )
     .eq("is_enabled", true)
     .eq("status", "active");
@@ -69,7 +69,7 @@ async function checkAndEnqueueSchedules() {
       ? new Date(rawLastRun.endsWith("Z") ? rawLastRun : rawLastRun + "Z")
       : new Date(now.getTime() - 2 * 60 * 1000);
 
-    if (!isDue(schedule.cron_expression as string, lastRun, now)) {
+    if (!isDue(schedule.cron_expression as string, lastRun, now, (schedule.cron_timezone as string) || "Asia/Kolkata")) {
       continue;
     }
 

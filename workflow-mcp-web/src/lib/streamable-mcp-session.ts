@@ -5,10 +5,6 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import { registerWorkflowMcpWebTools } from "@engine/mcp-server/workflow-mcp-web-tools";
 import { runWithRequestContext } from "@engine/mcp-server/request-context";
-import {
-  registerWorkflowMcpApp,
-  WORKFLOW_MCP_EXECUTION_CHART_URI,
-} from "@/lib/register-workflow-mcp-app";
 
 type Session = {
   transport: WebStandardStreamableHTTPServerTransport;
@@ -109,13 +105,8 @@ export async function handleStreamableMcpRequest(
         { name: "workflow-mcp-web", version: "1.0.0" },
         {}
       );
-      registerWorkflowMcpApp(server);
       registerWorkflowMcpWebTools(
-        server as unknown as Parameters<typeof registerWorkflowMcpWebTools>[0],
-        {
-          executionChartResourceUri: WORKFLOW_MCP_EXECUTION_CHART_URI,
-          registerAppToolForExecutionLogs: registerAppTool,
-        }
+        server as unknown as Parameters<typeof registerWorkflowMcpWebTools>[0]
       );
       await server.connect(transport);
       session = { transport, server };

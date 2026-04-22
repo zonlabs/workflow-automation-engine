@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS scheduled_workflows (
   
   name TEXT NOT NULL,
   cron_expression TEXT NOT NULL,
-  cron_timezone TEXT DEFAULT 'UTC',
+  cron_timezone TEXT DEFAULT 'Asia/Kolkata',
   
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'disabled')),
   is_enabled BOOLEAN DEFAULT TRUE,

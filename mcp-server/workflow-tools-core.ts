@@ -158,17 +158,7 @@ export async function listWorkflowsMcpResult(
 }
 
 export type RegisterWorkflowMcpCoreToolsOptions = {
-  /**
-   * When set (e.g. workflow-mcp-web), `execution_log_list` / `execution_log_get` are registered as MCP App tools
-   * so hosts can open the execution timeline UI for the same JSON payload.
-   */
-  executionChartResourceUri?: string;
-  /**
-   * Pass `registerAppTool` from `@modelcontextprotocol/ext-apps/server` when `executionChartResourceUri` is set.
-   * Omitted in the CJS `mcp-server` package (ESM-only ext-apps); the web app injects this.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  registerAppToolForExecutionLogs?: (server: Pick<McpServer, "registerTool">, name: string, config: any, cb: any) => void;
+  // Options for MCP App UI resources removed.
 };
 
 /** Shared handler for `execution_log_list`. */
@@ -257,20 +247,10 @@ export async function executionLogGetMcpResult(
 }
 
 function registerExecutionLogTools(
-  server: McpServer,
-  chartUri: string | undefined,
-  registerAppToolFn: RegisterWorkflowMcpCoreToolsOptions["registerAppToolForExecutionLogs"]
+  server: McpServer
 ): void {
-  const listDescription =
-    "List recent execution logs. Optional workflow_id scopes rows to one workflow." +
-    (chartUri
-      ? " MCP Apps hosts can open an execution timeline (bars by time/status) from this tool result."
-      : "");
-  const getDescription =
-    "Fetch a single execution log by id." +
-    (chartUri
-      ? " MCP Apps hosts can open an execution timeline from this tool result (single run)."
-      : "");
+  const listDescription = "List recent execution logs. Optional workflow_id scopes rows to one workflow.";
+  const getDescription = "Fetch a single execution log by id.";
 
   const listConfig = {
     title: "List Execution Logs",
@@ -296,49 +276,19 @@ function registerExecutionLogTools(
     },
   };
 
-  if (chartUri) {
-    if (!registerAppToolFn) {
-      throw new Error(
-        "registerWorkflowMcpCoreTools: registerAppToolForExecutionLogs is required when executionChartResourceUri is set"
-      );
-    }
-    registerAppToolFn(
-      server,
-      "execution_log_list",
-      {
-        ...listConfig,
-        _meta: { ui: { resourceUri: chartUri } },
-      },
-      async ({ user_id, workflow_id, limit }: { user_id?: string; workflow_id?: string; limit?: number }, extra: ToolExtra | undefined) =>
-        executionLogListMcpResult({ user_id, workflow_id, limit }, extra)
-    );
-    registerAppToolFn(
-      server,
-      "execution_log_get",
-      {
-        ...getConfig,
-        _meta: { ui: { resourceUri: chartUri } },
-      },
-      async ({ user_id, execution_log_id }: { user_id?: string; execution_log_id: string }, extra: ToolExtra | undefined) =>
-        executionLogGetMcpResult({ user_id, execution_log_id }, extra)
-    );
-  } else {
-    server.registerTool("execution_log_list", listConfig, async ({ user_id, workflow_id, limit }, extra) =>
-      executionLogListMcpResult({ user_id, workflow_id, limit }, extra)
-    );
-    server.registerTool("execution_log_get", getConfig, async ({ user_id, execution_log_id }, extra) =>
-      executionLogGetMcpResult({ user_id, execution_log_id }, extra)
-    );
-  }
+  server.registerTool("execution_log_list", listConfig, async ({ user_id, workflow_id, limit }, extra) =>
+    executionLogListMcpResult({ user_id, workflow_id, limit }, extra)
+  );
+  server.registerTool("execution_log_get", getConfig, async ({ user_id, execution_log_id }, extra) =>
+    executionLogGetMcpResult({ user_id, execution_log_id }, extra)
+  );
 }
 
 /** Workflow MCP tools that only need Supabase (no BullMQ). */
 export function registerWorkflowMcpCoreTools(
   server: McpServer,
-  options?: RegisterWorkflowMcpCoreToolsOptions
+  _options?: RegisterWorkflowMcpCoreToolsOptions
 ): void {
-  const chartUri = options?.executionChartResourceUri?.trim() || undefined;
-  const registerAppToolFn = options?.registerAppToolForExecutionLogs;
   server.registerTool(
     "workflow_list",
     {
@@ -382,7 +332,7 @@ export function registerWorkflowMcpCoreTools(
           `id, name, description, is_active, created_at, input_schema, output_schema, script_code, defaults_for_required_parameters,
            script_runtime,
            workflow_steps(id, step_number, name, description, toolkit, tool_slug, tool_arguments, depends_on_step_id, run_if_condition, retry_on_failure, max_retries, timeout_seconds),
-           scheduled_workflows(id, name, cron_expression, status, is_enabled, params, created_at)`
+           scheduled_workflows(id, name, cron_expression, cron_timezone, status, is_enabled, params, created_at)`
         )
         .eq("id", workflow_id)
         .eq("user_id", resolvedUserId)
@@ -498,7 +448,7 @@ export function registerWorkflowMcpCoreTools(
     {
       title: "Create or Update Schedule",
       description:
-        "Create or update a cron schedule (5-field cron, evaluated in UTC by the scheduler worker). " +
+        "Create or update a cron schedule (5-field cron). By default, schedules use IST (Asia/Kolkata), but you can specify any other IANA timezone. " +
         "This is time-based polling only, not a push/webhook trigger. Set is_enabled false to keep a schedule row without the scheduler enqueuing runs.",
       inputSchema: {
         user_id: z
@@ -509,12 +459,13 @@ export function registerWorkflowMcpCoreTools(
         schedule_id: z.string().optional(),
         name: z.string(),
         cron_expression: z.string(),
+        cron_timezone: z.string().optional().describe("IANA timezone string, e.g. 'Asia/Kolkata' for IST. Defaults to 'Asia/Kolkata'."),
         status: z.string().optional(),
         is_enabled: z.boolean().optional(),
         params: z.record(z.any()).optional(),
       },
     },
-    async ({ user_id, workflow_id, schedule_id, name, cron_expression, status, is_enabled, params }, extra) => {
+    async ({ user_id, workflow_id, schedule_id, name, cron_expression, cron_timezone, status, is_enabled, params }, extra) => {
       const resolvedUserId = resolveUserId(user_id, extra);
       if (!resolvedUserId) {
         return errorResponse("user_id is required");
@@ -524,6 +475,7 @@ export function registerWorkflowMcpCoreTools(
         user_id: resolvedUserId,
         name,
         cron_expression,
+        cron_timezone: cron_timezone ?? "Asia/Kolkata",
         status: status ?? "active",
         is_enabled: is_enabled ?? true,
         params: asJsonObject(params),
@@ -535,7 +487,7 @@ export function registerWorkflowMcpCoreTools(
           .update(payload)
           .eq("id", schedule_id)
           .eq("user_id", resolvedUserId)
-          .select("id, name, cron_expression, status, is_enabled, params, created_at")
+          .select("id, name, cron_expression, cron_timezone, status, is_enabled, params, created_at")
           .single();
         if (error || !data) {
           return errorResponse(error?.message ?? "Update failed");
@@ -546,7 +498,7 @@ export function registerWorkflowMcpCoreTools(
       const { data, error } = await supabase
         .from("scheduled_workflows")
         .insert(payload)
-        .select("id, name, cron_expression, status, is_enabled, params, created_at")
+        .select("id, name, cron_expression, cron_timezone, status, is_enabled, params, created_at")
         .single();
 
       if (error || !data) {
@@ -557,5 +509,5 @@ export function registerWorkflowMcpCoreTools(
     }
   );
 
-  registerExecutionLogTools(server, chartUri, registerAppToolFn);
+  registerExecutionLogTools(server);
 }
