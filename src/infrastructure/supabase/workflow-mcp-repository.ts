@@ -207,7 +207,6 @@ export class WorkflowMcpRepository {
       user_id: input.userId,
       name: input.name.trim(),
       description: input.description?.trim() ?? null,
-      workflow: [],
       input_schema: input.inputSchema,
       output_schema: input.outputSchema,
       defaults_for_required_parameters: input.defaults ?? {},

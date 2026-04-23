@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS workflows (
   
   input_schema JSONB NOT NULL DEFAULT '{}',
   output_schema JSONB NOT NULL DEFAULT '{}',
-  workflow JSONB NOT NULL DEFAULT '[]',
   script_code TEXT,
   script_runtime JSONB DEFAULT '{}',
   defaults_for_required_parameters JSONB DEFAULT '{}',
